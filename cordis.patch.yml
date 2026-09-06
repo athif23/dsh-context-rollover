@@ -1,0 +1,12 @@
+# Bundle patch: become the active compaction backend and mount the plugin.
+#
+# Layer order: base bundle rows are applied first, then this bundle's patch.
+# `disabled: true` replaces the `compaction-basic` row's state (precedent:
+# the web-app bundle disables the same row by id). `command-compact` stays
+# mounted — it injects `ctx.compaction`, which this bundle provides.
+- id: compaction-basic
+  disabled: true
+- insert:
+    - id: context-rollover
+      name: dsh-context-rollover
+      config: {}

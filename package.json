@@ -1,0 +1,74 @@
+{
+  "name": "dsh-context-rollover",
+  "description": "Model-driven context-window rollover bundle for the DeepSeek Harness: fresh working context, durable model-managed notes, a small verbatim recent tail, and targeted history recovery \u2014 no summarization.",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "generate:paths": "node scripts/generate-dsh-paths.mjs",
+    "build": "node scripts/generate-dsh-build-paths.mjs && tsc -p tsconfig.build.json",
+    "test": "node scripts/generate-dsh-paths.mjs && vitest run",
+    "typecheck": "node scripts/generate-dsh-paths.mjs && tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "typecheck:compat": "node scripts/generate-dsh-build-paths.mjs compat && tsc -p tsconfig.compat.json",
+    "compat:install": "pnpm --dir compat install"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0",
+    "@deepseek-ai/dsh-agent": ">=0.1.0-rc.1",
+    "@deepseek-ai/dsh-compaction": ">=0.1.0-rc.1",
+    "@deepseek-ai/dsh-compaction-tool-result-pruner": ">=0.1.0-rc.1",
+    "@deepseek-ai/dsh-home-paths": ">=0.0.1-rc.1",
+    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.1",
+    "@deepseek-ai/dsh-session": ">=0.1.0-rc.1",
+    "@deepseek-ai/dsh-system-prompt": ">=0.1.0-rc.1",
+    "@deepseek-ai/dsh-token-meter": ">=0.1.0-rc.1",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-compaction-tool-result-pruner": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "context-window",
+    "compaction",
+    "context-management"
+  ]
+}

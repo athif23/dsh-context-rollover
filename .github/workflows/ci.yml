@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The sibling-checkout paths generator requires the DSH sources; CI
+      # checks out the harness at the pinned ref instead.
+      - uses: actions/checkout@v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: main
+          path: deepseek-harness
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Compat typecheck against the newest public dsh packages
+        run: |
+          pnpm compat:install
+          pnpm typecheck:compat

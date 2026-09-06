@@ -1,0 +1,19 @@
+{
+  "name": "dsh-context-rollover-compat",
+  "private": true,
+  "description": "Type-probe environment: the newest PUBLIC dsh package line, against which the plugin must typecheck",
+  "type": "module",
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-agent": "latest",
+    "@deepseek-ai/dsh-compaction": "latest",
+    "@deepseek-ai/dsh-compaction-tool-result-pruner": "latest",
+    "@deepseek-ai/dsh-home-paths": "latest",
+    "@deepseek-ai/dsh-llm": "latest",
+    "@deepseek-ai/dsh-session": "latest",
+    "@deepseek-ai/dsh-system-prompt": "latest",
+    "@deepseek-ai/dsh-token-meter": "latest",
+    "@deepseek-ai/dsh-tools": "latest",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  }
+}

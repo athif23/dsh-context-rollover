@@ -1,0 +1,5 @@
+node_modules/
+lib/
+tsconfig.dsh-paths.json
+tsconfig.build-paths.json
+tsconfig.compat-paths.json
