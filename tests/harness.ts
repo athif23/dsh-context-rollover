@@ -96,11 +96,16 @@ export function textResponse(text: string): StreamChunk[] {
 
 /** One streamed `new_context` tool call with the given JSON arguments. */
 export function newContextCall(argumentsJson: string, callId = 'c1'): StreamChunk[] {
+  return toolCall('new_context', argumentsJson, callId)
+}
+
+/** One streamed tool call for any registered tool name. */
+export function toolCall(name: string, argumentsJson: string, callId = 'c1'): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'tool-call' },
-    { type: 'tool-call-delta', index: 0, id: ToolCallId(callId), name: 'new_context', argumentsDelta: argumentsJson.slice(0, 5) },
+    { type: 'tool-call-delta', index: 0, id: ToolCallId(callId), name, argumentsDelta: argumentsJson.slice(0, 5) },
     { type: 'tool-call-delta', index: 0, id: ToolCallId(callId), argumentsDelta: argumentsJson.slice(5) },
-    { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId(callId), name: 'new_context', arguments: argumentsJson } },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId(callId), name, arguments: argumentsJson } },
     { type: 'finish', reason: { kind: 'tool-calls' } },
   ]
 }

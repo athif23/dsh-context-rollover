@@ -31,12 +31,18 @@ import { buildRecoveryRecord } from './checkpoint.ts'
 import type { RolloverReason } from './checkpoint.ts'
 import { CONTEXT_MANAGEMENT_GUIDANCE } from './guidance.ts'
 import { NotesStore } from './notes.ts'
+import { sessionEventAt } from './compat.ts'
 import { commitRollover, countRollovers, selectRolloverRange } from './rollover.ts'
 import { createRolloverTools } from './tools.ts'
 import type { PendingRollover } from './state.ts'
 
 /** Cordis plugin name used by loader diagnostics and message-source attribution. */
 export const name = 'context-rollover'
+
+/** Identity of one agent turn for per-turn engine bookkeeping. */
+function turnKey(sessionId: string, turn: number): string {
+  return `${sessionId}#${turn}`
+}
 
 export type { RolloverConfig, ResolvedRolloverConfig } from './config.ts'
 export { buildCheckpointText, buildRecoveryRecord } from './checkpoint.ts'
@@ -77,6 +83,8 @@ export class ContextRolloverEngine extends CompactionEngine {
 
   private readonly pendingRollovers = new Map<string, PendingRollover>()
   private readonly reminderDelivered = new Set<string>()
+  /** Turns (session + seq at crossing time) that already had a pressure rollover. */
+  private readonly pressureRolledTurns = new Set<string>()
   private readonly overflowRetries = new WeakMap<Agent, number>()
 
   constructor(ctx: Context, config: RolloverConfig = {}) {
@@ -115,7 +123,7 @@ export class ContextRolloverEngine extends CompactionEngine {
     // Cross the boundary before the next model request when the model asked
     // for it, then fall through to the pressure evaluation.
     ctx.on('agent/pre-step', async (
-      { agent, signal },
+      { agent, turn, signal },
       next,
     ): Promise<PreStepDecision> => {
       if (!signal.aborted) {
@@ -128,7 +136,7 @@ export class ContextRolloverEngine extends CompactionEngine {
               handoff: pending.handoff,
             }, signal)
           } else {
-            await this.rollOverOnPressure(agent, signal)
+            await this.rollOverOnPressure(agent, turn, signal)
           }
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : String(error)
@@ -216,16 +224,29 @@ export class ContextRolloverEngine extends CompactionEngine {
 
   /**
    * Pressure evaluation: one reminder per window below the rollover point,
-   * automatic rollover above it.
+   * automatic rollover above it. Automatic pressure rollover happens at most
+   * once per turn: crossing the threshold again within the same turn means
+   * per-step re-injection plus tail exceed the threshold (a config/tail
+   * mismatch), which no rollover fixes — rolling over again would burn the
+   * prefix cache every step. Model-requested and overflow rollovers are exempt.
    */
-  private async rollOverOnPressure(agent: Agent, signal: AbortSignal): Promise<void> {
+  private async rollOverOnPressure(agent: Agent, turn: number, signal: AbortSignal): Promise<void> {
     const contextWindow = agent.session.requestContext()?.contextWindow
     if (contextWindow === undefined) return
     const measurement = this.ctx.tokenMeter.measure(agent.session)
     if (measurement.baseline.kind === 'none') return
     const rolloverTokens = Math.floor(contextWindow * this.config.thresholdRatio)
     if (measurement.totalTokens < rolloverTokens) return
+    if (this.pressureRolledTurns.has(turnKey(agent.session.id, turn))) {
+      this.ctx.logger.warn(
+        `context rollover: usage is still above the automatic threshold after this turn's pressure `
+        + `rollover (tail + per-step context likely exceed thresholdRatio * contextWindow); `
+        + 'skipping further automatic rollovers this turn',
+      )
+      return
+    }
     await this.performRollover(agent, { reason: 'pressure', handoff: null }, signal)
+    this.pressureRolledTurns.add(turnKey(agent.session.id, turn))
   }
 
   /**
@@ -280,6 +301,20 @@ export class ContextRolloverEngine extends CompactionEngine {
     return result
   }
 
+  /**
+   * The session's open turn number, or `-1` when none is open (the guard key
+   * then falls back to one-shot-per-call semantics).
+   */
+  private openTurnNumber(session: Session): number {
+    for (let seq = session.seq - 1; seq >= 0; seq -= 1) {
+      const event = sessionEventAt(session, seq)
+      if (event === undefined) continue
+      if (event.type === 'turn/start') return event.data.turn
+      if (event.type === 'turn/end') return -1
+    }
+    return -1
+  }
+
   /** Resolve the recent-tail token budget for one session. */
   private resolveRetainTokens(session: Session): number {
     if (this.config.retainTokens !== null) return this.config.retainTokens
@@ -311,7 +346,7 @@ export class ContextRolloverEngine extends CompactionEngine {
     if (trigger === 'context-overflow') {
       return this.performRollover(agent, { reason: 'overflow', handoff: null }, signal)
     }
-    await this.rollOverOnPressure(agent, signal)
+    await this.rollOverOnPressure(agent, this.openTurnNumber(agent.session), signal)
     return null
   }
 

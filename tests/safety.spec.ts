@@ -35,6 +35,7 @@ import {
   engineHarness,
   errorFinish,
   followup,
+  toolCall,
   ScriptedAdapter,
   seedExchanges,
   textResponse,
@@ -80,6 +81,42 @@ describe('automatic pressure rollover', () => {
     expect(texts).toContain('Recovery record')
     expect(texts).toContain('turn one')
     expect(texts).toContain('research answer two')
+  })
+})
+
+describe('pressure anti-thrash', () => {
+  it('rolls over at most once per turn when usage stays above the threshold', async () => {
+    const { ctx, agent, session } = await engineHarness('pressure-thrash', {
+      // Threshold (200) far below usage: every pre-step would cross it, so
+      // without the guard a multi-step turn rolls over on every step.
+      thresholdRatio: 0.002,
+      reminderThresholdRatio: 0.001,
+      retainTokens: 40,
+    })
+    // Turn 1 anchors usage (2000 >= the ~1100 heuristic estimate, so the
+    // meter trusts it). Turn 2 makes TWO model requests (a get_context_remaining
+    // call, then a text answer): two pre-steps inside one turn.
+    const adapter = new ScriptedAdapter([
+      usageResponse(`step answer 0 ${'context '.repeat(80)}`, 2000),
+      toolCall('get_context_remaining', '{}', 'c1'),
+      usageResponse(`step answer 1 ${'context '.repeat(80)}`, 2100),
+      usageResponse(`step answer 2 ${'context '.repeat(80)}`, 2200),
+    ])
+    ctx.llm.registerAdapter(['mock'], adapter)
+
+    await followup(agent, 'turn one')
+    expect(countRollovers(session)).toBe(0)
+
+    await followup(agent, 'turn two')
+    // Exactly one pressure rollover for the whole two-pre-step turn: the
+    // second crossing is the treadmill case the guard blocks.
+    expect(countRollovers(session)).toBe(1)
+    expect(derivedTexts(session).join('\n')).toContain('reason: pressure')
+
+    // The guard is per turn: the next turn may roll over once more.
+    await followup(agent, 'turn three')
+    expect(countRollovers(session)).toBe(2)
+    expect(derivedTexts(session).join('\n')).toContain('step answer 2')
   })
 })
 
