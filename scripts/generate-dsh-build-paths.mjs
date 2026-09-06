@@ -16,6 +16,12 @@ import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+/** tsc rejects bare relative paths entries without baseUrl; force a './' prefix. */
+function withDotSlash(path) {
+  const normalized = path.split(String.fromCharCode(92)).join('/')
+  return normalized.startsWith('.') ? normalized : `./${normalized}`
+}
 // The sibling DSH checkout; CI checks it out into the workspace and points
 // DSH_CHECKOUT_DIR at it.
 const checkoutDir = resolve(projectRoot, process.env.DSH_CHECKOUT_DIR ?? '../deepseek-harness')
