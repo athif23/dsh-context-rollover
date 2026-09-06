@@ -71,10 +71,10 @@ function declarationPaths(name, dir) {
       continue
     }
     if (subpath === '.') {
-      out[name] = [relative(projectRoot, resolve(dir, types)).replaceAll('\\', '/')]
+      out[name] = [withDotSlash(relative(projectRoot, resolve(dir, types)))]
     } else {
       const suffix = `/${subpath.replace(/^\.\//, '')}`
-      out[`${name}${suffix}`] = [relative(projectRoot, resolve(dir, types)).replaceAll('\\', '/')]
+      out[`${name}${suffix}`] = [withDotSlash(relative(projectRoot, resolve(dir, types)))]
     }
   }
   return out

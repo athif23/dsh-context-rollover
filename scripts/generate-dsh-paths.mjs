@@ -91,7 +91,7 @@ for (const [key, targets] of Object.entries(paths)) {
   // Paths entries resolve relative to the file that carries them, so rewrite
   // every target relative to this project root.
   const mapped = declaration ?? absolute
-  resolvedPaths[key] = [relative(projectRoot, mapped).replaceAll('\\', '/')]
+  resolvedPaths[key] = [withDotSlash(relative(projectRoot, mapped))]
 }
 
 writeFileSync(
