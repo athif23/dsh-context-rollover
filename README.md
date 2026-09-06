@@ -65,6 +65,16 @@ Responsibilities stay split (the Codex lesson):
 4. **Manual**: `/compact` keeps working — it performs a standalone rollover
    with recovery record + tail on an idle agent.
 
+## What this plugin touches
+
+- **Registers four model-facing tools** (`new_context`, `get_context_remaining`, `notes`, `history`)
+  and one system-prompt section — visible in every session of the profile that mounts it.
+- **Writes files** in exactly one place: markdown notes under `<dsh home>/notes/<sessionId>/`.
+  Nothing else on disk is written; no network calls, no telemetry.
+- **Replaces the active compaction backend** (`compaction-basic` is disabled by the bundle patch).
+  Session logs stay fully compatible in both directions.
+- **No credentials, no cloud services, no data leaves the machine.**
+
 ## Host version compatibility
 
 The plugin typechecks against **both** host lines: your development checkout
