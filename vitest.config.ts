@@ -10,7 +10,6 @@ import { defineConfig } from 'vitest/config'
 // same source-plane the DSH repository's own vitest suites use.
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)))
-const checkoutDir = resolve(projectRoot, '../deepseek-harness')
 const generated = JSON.parse(
   readFileSync(resolve(projectRoot, 'tsconfig.dsh-paths.json'), 'utf8'),
 )
@@ -32,7 +31,10 @@ function escapeRegExp(text) {
 
 /** Build one vite alias pair from a generated paths entry. */
 function aliasFor(key, target) {
-  const absolute = resolve(checkoutDir, target.replaceAll('*', '__STAR__'))
+  // Generated paths entries are relative to the project root (that is how
+  // tsc resolves them in the carrying tsconfig), so resolve against
+  // projectRoot — resolving against the checkout dir would double-prefix.
+  const absolute = resolve(projectRoot, target.replaceAll('*', '__STAR__'))
   if (!key.includes('*')) {
     return { find: new RegExp(`^${escapeRegExp(key)}$`), replacement: runtimeEntry(absolute) }
   }
