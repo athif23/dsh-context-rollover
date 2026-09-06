@@ -25,6 +25,14 @@ jobs:
         with:
           repository: athif23/deepseek-harness
           path: deepseek-harness
+      # The generators and tests resolve DSH through the sibling checkout:
+      # its dependencies and built lib/types must exist, exactly like local
+      # development.
+      - name: Build the DSH checkout
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+        working-directory: deepseek-harness
       - run: pnpm typecheck
         env:
           DSH_CHECKOUT_DIR: ./deepseek-harness
