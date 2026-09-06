@@ -65,6 +65,20 @@ Responsibilities stay split (the Codex lesson):
 4. **Manual**: `/compact` keeps working — it performs a standalone rollover
    with recovery record + tail on an idle agent.
 
+## Host version compatibility
+
+The plugin typechecks against **both** host lines: your development checkout
+(0.1.3-alpha, via generated tsconfig paths) and the newest packages published
+to public npm (`pnpm typecheck:compat` against `compat/node_modules`). Runtime
+differences — `snapshotEvents()` vs `events`, `eventAt`, the `TokenMeter`
+export shape, per-node heuristic pricing — are bridged in `src/compat.ts`.
+
+Note the published `@deepseek-ai/dsh-*` packages are a *partial* mirror: some
+of their peers reference packages that were never published publicly, so a
+standalone npm-only host graph cannot be assembled. That is expected — the
+plugin's peers resolve from the running dsh host's installation closure, and
+installing the plugin itself into a profile fetches only this package.
+
 ## Install
 
 ```sh
