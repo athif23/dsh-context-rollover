@@ -81,11 +81,37 @@ installing the plugin itself into a profile fetches only this package.
 
 ## Install
 
+From npm (recommended):
+
 ```sh
-# from any dsh-enabled checkout
-dsh plugin --profile <profile> add <path-to-this-package>
-# or: pnpm --dir "$DSH_HOME/profiles/<profile>" add <this-package>
+dsh plugin --profile <profile> add dsh-context-rollover
+# or, without the dsh CLI:
+pnpm --dir "$DSH_HOME/profiles/<profile>" add dsh-context-rollover
 ```
+
+A custom profile initializes with just `dsh-base`; the bundle's patch applies
+automatically because the package declares `dsh.bundle.patch`. After the first
+install (a bundle-membership change is a boot-time composition), start the
+profile once — the plugin's peer packages resolve from the running host's
+installation closure, never from npm.
+
+From GitHub instead of npm:
+
+```sh
+dsh plugin --profile <profile> add github:athif23/dsh-context-rollover
+```
+
+From a local checkout (development, see the HMR section below):
+
+```sh
+dsh plugin --profile <profile> add D:/path/to/dsh-context-rollover
+```
+
+**Windows note**: if the plugin loads but its `@deepseek-ai/*` imports fail at
+runtime after an install from Git Bash, pnpm may have materialized broken
+`link:` junctions (a Git Bash/Windows path-mangling bug). Recreate them with
+`cmd /c mklink /J` as described in the HMR section below — the same fix
+applies to any linked sibling package in the profile.
 
 The bundle's `cordis.patch.yml` disables `dsh-compaction-basic` and mounts the
 `context-rollover` engine itself. `command-compact`, the token meter, and the
