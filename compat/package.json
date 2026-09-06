@@ -6,6 +6,7 @@
   "dependencies": {
     "@deepseek-ai/cordis": "^4.0.0",
     "@deepseek-ai/dsh-agent": "latest",
+    "@deepseek-ai/dsh-commands": "latest",
     "@deepseek-ai/dsh-compaction": "latest",
     "@deepseek-ai/dsh-compaction-tool-result-pruner": "latest",
     "@deepseek-ai/dsh-home-paths": "latest",
