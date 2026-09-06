@@ -1,0 +1,2 @@
+# See the root pnpm-workspace.yaml note: peers are never auto-installed.
+autoInstallPeers: false
