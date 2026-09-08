@@ -4,6 +4,14 @@
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/athif23/dsh-context-rollover.git"
+  },
+  "homepage": "https://github.com/athif23/dsh-context-rollover#readme",
+  "bugs": {
+    "url": "https://github.com/athif23/dsh-context-rollover/issues"
+  },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
@@ -34,6 +42,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.0",
     "@deepseek-ai/dsh-agent": ">=0.1.0-rc.1",
+    "@deepseek-ai/dsh-commands": ">=0.1.0-rc.1",
     "@deepseek-ai/dsh-compaction": ">=0.1.0-rc.1",
     "@deepseek-ai/dsh-compaction-tool-result-pruner": ">=0.1.0-rc.1",
     "@deepseek-ai/dsh-home-paths": ">=0.0.1-rc.1",
@@ -53,11 +62,6 @@
     "@types/node": "^24.0.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   },
   "engines": {
     "node": ">=22.19"

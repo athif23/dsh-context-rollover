@@ -193,7 +193,7 @@ function notesTool(deps: RolloverToolDependencies) {
           if (listings.length === 0) return { action: 'list', text: 'No notes stored yet.' }
           return {
             action: 'list',
-            result: listings.map(listing => `${listing.path} (${listing.size} bytes)`).join('\n'),
+            text: listings.map(listing => `${listing.path} (${listing.size} bytes)`).join('\n'),
           }
         }
         case 'read': {
@@ -220,7 +220,7 @@ function notesTool(deps: RolloverToolDependencies) {
           if (matches.length === 0) return { action: 'search', text: 'No matches.' }
           return {
             action: 'search',
-            result: matches
+            text: matches
               .map(match => `${match.path}:${match.line}: ${match.text}`)
               .join('\n'),
           }
@@ -288,7 +288,7 @@ function historyTool() {
           if (matches.length === 0) return { action: 'search', text: 'No matches in history.' }
           return {
             action: 'search',
-            result: matches
+            text: matches
               .map(match => `[seq ${match.seq}] (window ${match.window}, ${match.kind}) ${match.snippet}`)
               .join('\n---\n'),
           }
@@ -305,7 +305,7 @@ function historyTool() {
           if (item === null) {
             throw new Error(`no history item at seq ${args.seq} (it may still be on the active surface)`)
           }
-          return { action: 'read', result: `[seq ${item.seq}] (window ${item.window}, ${item.kind})\n${item.text}` }
+          return { action: 'read', text: `[seq ${item.seq}] (window ${item.window}, ${item.kind})\n${item.text}` }
         }
         default:
           throw new Error(`unknown history action "${String(args.action)}"; expected search or read`)

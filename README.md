@@ -222,7 +222,7 @@ their relaxed strictness.
 
 ```sh
 pnpm install
-pnpm test        # 18 tests: surface, notes, history, engine integration
+pnpm test        # surface, notes, history, engine integration, tool rendering
 pnpm typecheck
 ```
 

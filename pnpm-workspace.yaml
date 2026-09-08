@@ -4,3 +4,6 @@
 # registry here. (npm reads .npmrc and warns on pnpm-only settings, which
 # is why this lives here instead.)
 autoInstallPeers: false
+# pnpm v10+ no longer reads the "pnpm" field in package.json.
+onlyBuiltDependencies:
+  - esbuild

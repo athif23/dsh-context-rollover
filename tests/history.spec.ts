@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { Session } from '@deepseek-ai/dsh-session'
@@ -104,5 +105,81 @@ describe('history', () => {
     const last = nodes[nodes.length - 1]
     if (last === undefined) throw new Error('expected a surface node')
     expect(readHistoryItem(session, last, 0, [])).toBeNull()
+  })
+
+  it('excludes rollover checkpoints from history across two rollovers', async () => {
+    const session = closedConversation(4)
+    await rollEverything(session, 1)
+    appendExchange(session, 5, 'exchange 5', false)
+    appendExchange(session, 6, 'exchange 6', false)
+    await rollEverything(session, 2)
+    expect(countRollovers(session)).toBe(2)
+
+    const windowCount = countRollovers(session)
+    const rolloverSeqs = rolloverSummarySeqs(session)
+
+    // Direct user messages from earlier windows remain searchable.
+    const early = searchHistory(session, windowCount, rolloverSeqs, 'exchange 1')
+    expect(early.length).toBeGreaterThan(0)
+    expect(early.every(match => match.kind !== undefined && match.window === 1)).toBe(true)
+    expect(early.some(match => match.kind === 'user')).toBe(true)
+    const later = searchHistory(session, windowCount, rolloverSeqs, 'exchange 5')
+    expect(later.length).toBeGreaterThan(0)
+    expect(later.every(match => match.window === 2)).toBe(true)
+
+    // Checkpoint-only marker text never surfaces as user history, even
+    // though two checkpoints (one per rollover) are now shadowed or current.
+    expect(searchHistory(session, windowCount, rolloverSeqs, 'Durable notes')).toEqual([])
+    expect(searchHistory(session, windowCount, rolloverSeqs, 'context-rollover checkpoint')).toEqual([])
+    const items = collectHistory(session, windowCount, rolloverSeqs)
+    expect(items.some(item => item.text.includes('<context-rollover checkpoint>'))).toBe(false)
+  })
+
+  it('refuses to read a rollover checkpoint by seq', async () => {
+    const session = closedConversation(4)
+    await rollEverything(session, 1)
+    appendExchange(session, 5, 'exchange 5', false)
+    await rollEverything(session, 2)
+
+    // The first checkpoint is now shadowed (not on the surface), but it is
+    // still not readable as history: provenance excludes it, not position.
+    const shadowedCheckpoint = session.snapshotEvents()
+      .filter(event => event.type === 'user/message')
+      .filter(event => !session.surface.nodes.includes(event.seq))
+      .find(event => JSON.stringify(event.data).includes('context-rollover checkpoint'))
+    if (shadowedCheckpoint === undefined) throw new Error('expected a shadowed checkpoint event')
+    expect(readHistoryItem(session, shadowedCheckpoint.seq, countRollovers(session), rolloverSummarySeqs(session))).toBeNull()
+  })
+
+  it('excludes plugin-injected notices while keeping conversation kinds', async () => {
+    const session = closedConversation(2)
+    // A pressure-reminder-shaped plugin notice on the surface, like the
+    // engine's one-per-window checkpoint reminder.
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'Context window: 80% used reminder marker xyz' }],
+      source: { kind: 'plugin', plugin: 'context-rollover', form: 'notice', summary: 'context pressure reminder' },
+    }), { surfaceOp: 'append' })
+    // Later conversation pushes the notice off the retained tail so the
+    // rollover genuinely shadows it (a zero tail budget keeps the last node).
+    appendExchange(session, 3, 'exchange 3', false)
+    await rollEverything(session, 1)
+
+    const windowCount = countRollovers(session)
+    const rolloverSeqs = rolloverSummarySeqs(session)
+
+    // Direct user conversation stays recoverable with its kinds intact.
+    expect(searchHistory(session, windowCount, rolloverSeqs, 'exchange 1').length).toBeGreaterThan(0)
+    const kinds = new Set(collectHistory(session, windowCount, rolloverSeqs).map(item => item.kind))
+    expect(kinds.has('user')).toBe(true)
+    expect(kinds.has('assistant')).toBe(true)
+    expect(kinds.has('tool-result')).toBe(true)
+
+    // The plugin notice is neither searchable nor readable as history.
+    expect(searchHistory(session, windowCount, rolloverSeqs, 'reminder marker xyz')).toEqual([])
+    const notice = session.snapshotEvents()
+      .filter(event => event.type === 'user/message')
+      .find(event => JSON.stringify(event.data).includes('reminder marker xyz'))
+    if (notice === undefined) throw new Error('expected the reminder event in the log')
+    expect(readHistoryItem(session, notice.seq, windowCount, rolloverSeqs)).toBeNull()
   })
 })

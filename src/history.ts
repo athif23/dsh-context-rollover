@@ -7,9 +7,9 @@
  * @module dsh-context-rollover/history
  */
 
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Seq } from './compat.ts'
-import { sessionEvents } from './compat.ts'
+import { sessionEventAt, sessionEvents } from './compat.ts'
 
 /** Which kind of surface event one history item came from. */
 export type HistoryItemKind = 'user' | 'assistant' | 'tool-result'
@@ -44,6 +44,38 @@ function messageBlocksText(blocks: readonly { type: string; text?: string }[]): 
 }
 
 /**
+ * Extract recoverable text from a shadowed `user/message` event, or `null`
+ * when the event is not direct user-authored conversation. DSH message
+ * provenance is the discriminator: only `source.kind === 'user'` qualifies.
+ * Plugin-injected contexts — rollover checkpoints (`plugin/compact`), pressure
+ * reminders, and any other injected notice — are excluded so `kind: 'user'`
+ * always means an actual direct user message.
+ * @param event - a `user/message` log event.
+ * @returns the message text, or `null` when the event is plugin-generated.
+ */
+function directUserText(event: Extract<SessionEvent, { type: 'user/message' }>): string | null {
+  if (event.data.source.kind !== 'user') return null
+  return messageBlocksText(event.data.content)
+}
+
+/**
+ * Attribute one shadowed event to its originating window: the number of
+ * rollovers committed at or after the item's seq.
+ * @param seq - the shadowed event's log position.
+ * @param windowCount - number of rollovers committed so far.
+ * @param rolloverSeqs - seqs of the rollover summary events, ascending.
+ * @returns the 1-based window number the item belongs to.
+ */
+function windowForSeq(seq: number, windowCount: number, rolloverSeqs: readonly Seq[]): number {
+  for (const rolloverSeq of rolloverSeqs) {
+    if (rolloverSeq >= seq) {
+      return rolloverSeqs.indexOf(rolloverSeq) + 1
+    }
+  }
+  return windowCount + 1
+}
+
+/**
  * Collect every item that has left the active surface, in log order. Current
  * surface content is active context, not history.
  * @param session - session whose log supplies the history.
@@ -63,10 +95,13 @@ export function collectHistory(
     let kind: HistoryItemKind
     let text: string
     switch (event.type) {
-      case 'user/message':
+      case 'user/message': {
+        const direct = directUserText(event)
+        if (direct === null) continue
         kind = 'user'
-        text = messageBlocksText(event.data.content)
+        text = direct
         break
+      }
       case 'assistant/message':
         kind = 'assistant'
         text = messageBlocksText(event.data.message.content)
@@ -79,16 +114,7 @@ export function collectHistory(
         continue
     }
     if (text.length === 0) continue
-    // Items shadowed by window N's rollover belong to window N: the number of
-    // rollovers committed at or after the item's seq.
-    let window = windowCount + 1
-    for (const rolloverSeq of rolloverSeqs) {
-      if (rolloverSeq >= event.seq) {
-        window = rolloverSeqs.indexOf(rolloverSeq) + 1
-        break
-      }
-    }
-    items.push({ seq: event.seq as Seq, kind, window, text })
+    items.push({ seq: event.seq as Seq, kind, window: windowForSeq(event.seq, windowCount, rolloverSeqs), text })
   }
   return items
 }
@@ -141,14 +167,14 @@ export function searchHistory(
 }
 
 /**
- * Read one history item's text by its logged seq.
+ * Read one history item's text by its logged seq, without scanning the log.
  * @param session - session whose log supplies the history.
  * @param seq - the item's event seq (as returned by a search).
  * @param windowCount - number of rollovers committed so far.
  * @param rolloverSeqs - seqs of the rollover summary events, ascending.
  * @param maxChars - hard character bound for the returned text.
  * @returns the item, or `null` when the seq is unknown, still on the active
- *   surface, or carries no text.
+ *   surface, a rollover checkpoint, or carries no text.
  */
 export function readHistoryItem(
   session: Session,
@@ -157,9 +183,37 @@ export function readHistoryItem(
   rolloverSeqs: readonly Seq[],
   maxChars = 4000,
 ): HistoryItem | null {
-  const item = collectHistory(session, windowCount, rolloverSeqs)
-    .find(candidate => candidate.seq === seq)
-  if (item === null || item === undefined) return null
+  if (session.surface.nodes.includes(seq as Seq)) return null
+  const event = sessionEventAt(session, seq)
+  if (event === undefined) return null
+  let kind: HistoryItemKind
+  let text: string
+  switch (event.type) {
+    case 'user/message': {
+      const direct = directUserText(event)
+      if (direct === null) return null
+      kind = 'user'
+      text = direct
+      break
+    }
+    case 'assistant/message':
+      kind = 'assistant'
+      text = messageBlocksText(event.data.message.content)
+      break
+    case 'tool/result':
+      kind = 'tool-result'
+      text = messageBlocksText(event.data.message.content)
+      break
+    default:
+      return null
+  }
+  if (text.length === 0) return null
+  const item: HistoryItem = {
+    seq: event.seq as Seq,
+    kind,
+    window: windowForSeq(event.seq, windowCount, rolloverSeqs),
+    text,
+  }
   if (item.text.length > maxChars) {
     return { ...item, text: `${item.text.slice(0, maxChars)}…` }
   }
