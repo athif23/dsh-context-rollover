@@ -1,7 +1,7 @@
 {
   "name": "dsh-context-rollover",
-  "description": "Model-driven context-window rollover bundle for the DeepSeek Harness: fresh working context, durable model-managed notes, a small verbatim recent tail, and targeted history recovery \u2014 no summarization.",
-  "version": "0.1.0",
+  "description": "Model-driven context-window rollover bundle for the DeepSeek Harness: fresh working context, durable model-managed notes, a small verbatim recent tail, and targeted history recovery — no summarization.",
+  "version": "0.1.1",
   "type": "module",
   "license": "MIT",
   "repository": {
