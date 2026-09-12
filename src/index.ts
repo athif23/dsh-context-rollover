@@ -44,6 +44,24 @@ function turnKey(sessionId: string, turn: number): string {
   return `${sessionId}#${turn}`
 }
 
+/**
+ * Minimal agent-preset roster shape, read without a peer dependency on the
+ * preset package (the published package mirror does not carry it): resolved
+ * at call time through the service store, so rosterless deployments simply
+ * observe no roster. Only the `serviceFor` read is used.
+ */
+interface AgentPresetRoster {
+  serviceFor(agent: { ctx: Context }, name: 'compaction'): CompactionEngine | undefined
+}
+
+/** Read the agent-preset roster when this deployment has one. */
+function rosterOf(ctx: Context): AgentPresetRoster | undefined {
+  const roster = (ctx as unknown as { get(name: string): unknown }).get('agentPresets')
+  if (roster === undefined || roster === null
+    || typeof (roster as AgentPresetRoster).serviceFor !== 'function') return undefined
+  return roster as AgentPresetRoster
+}
+
 export type { RolloverConfig, ResolvedRolloverConfig } from './config.ts'
 export { buildCheckpointText, buildRecoveryRecord } from './checkpoint.ts'
 export { NotesStore, resolveNotePath } from './notes.ts'
@@ -97,10 +115,21 @@ export class ContextRolloverEngine extends CompactionEngine {
 
   /** Mount the model-facing tools. */
   private registerTools(): void {
+    // Preset deployments surface these tools from their own preset
+    // composition (which shadows a global registration per session), so the
+    // host row registers nothing there: rollover-framed tools would otherwise
+    // leak into presets that never opted in (standard, minimal, ...).
+    // Rosterless deployments (headless, base-only profiles) have no presets
+    // and keep the global registration. Read at construction — bundle order
+    // mounts the roster first in practice; if a roster ever appears later,
+    // the global tools remain as the honest fallback (new_context redirects
+    // instead of promising).
+    if (rosterOf(this.ctx) !== undefined) return
     const deps = {
       config: this.config,
       meter: this.ctx.tokenMeter,
       pendingRollovers: this.pendingRollovers,
+      compactionOwnedElsewhere: (agent: { ctx: Context }) => this.compactionOwnedElsewhere(agent as Agent),
     }
     for (const tool of createRolloverTools(deps, this.config.notesEnabled, this.config.historyEnabled)) {
       this.ctx.tools.register(tool)
@@ -126,7 +155,10 @@ export class ContextRolloverEngine extends CompactionEngine {
       { agent, turn, signal },
       next,
     ): Promise<PreStepDecision> => {
-      if (!signal.aborted) {
+      // A preset-owned session is that preset's backend's responsibility;
+      // without this guard the host engine and the preset backend would race
+      // the same pressure signal and the loser would fail on the lock.
+      if (!signal.aborted && !this.compactionOwnedElsewhere(agent)) {
         try {
           const pending = this.pendingRollovers.get(agent.session.id)
           if (pending !== undefined) {
@@ -153,6 +185,7 @@ export class ContextRolloverEngine extends CompactionEngine {
     // A rollover requested as the turn's last action still happens before the
     // next turn starts.
     ctx.on('agent/turn-stopping', async ({ agent, signal }) => {
+      if (this.compactionOwnedElsewhere(agent)) return
       const pending = this.pendingRollovers.get(agent.session.id)
       if (pending === undefined || signal.aborted) return
       this.pendingRollovers.delete(agent.session.id)
@@ -175,6 +208,7 @@ export class ContextRolloverEngine extends CompactionEngine {
       next,
     ) => {
       if (failure.code !== CONTEXT_WINDOW_EXCEEDED_CODE || signal.aborted) return next()
+      if (this.compactionOwnedElsewhere(agent)) return next()
       const generation = agent.session.surface.replaceGeneration
       const retries = this.overflowRetries.get(agent) ?? 0
       try {
@@ -330,6 +364,24 @@ export class ContextRolloverEngine extends CompactionEngine {
   }
 
   /**
+   * Whether another backend owns compaction for this agent's session.
+   *
+   * Sessions composed from an agent preset resolve `ctx.compaction` to that
+   * preset's backend; the host engine then stands down everywhere (pressure,
+   * overflow, manual) so exactly one backend acts per session. Rosterless
+   * deployments (headless, base-only profiles) have no roster and this
+   * backend stays active.
+   * @param agent - agent whose composition to inspect.
+   * @returns true when a different backend owns the session.
+   */
+  private compactionOwnedElsewhere(agent: Agent): boolean {
+    const roster = rosterOf(this.ctx)
+    if (roster === undefined) return false
+    const owned = roster.serviceFor(agent, 'compaction')
+    return owned !== undefined && owned !== this
+  }
+
+  /**
    * Compact when the model failed to manage context: pressure rolls over with
    * a recovery record above the threshold; context-overflow forces the
    * reduction without a tail.
@@ -343,6 +395,7 @@ export class ContextRolloverEngine extends CompactionEngine {
     trigger: CompactionTrigger,
     signal: AbortSignal,
   ): Promise<CompactionResult | null> {
+    if (this.compactionOwnedElsewhere(agent)) return null
     if (trigger === 'context-overflow') {
       return this.performRollover(agent, { reason: 'overflow', handoff: null }, signal)
     }
@@ -364,6 +417,10 @@ export class ContextRolloverEngine extends CompactionEngine {
     sourceCommandId?: CommandId,
   ): Promise<CompactionResult | null> {
     signal.throwIfAborted()
+    if (this.compactionOwnedElsewhere(agent)) {
+      this.ctx.logger.info('context rollover skipped: session compaction is owned by its agent preset')
+      return Promise.resolve(null)
+    }
     const run = async (): Promise<CompactionResult | null> => {
       const session = agent.session
       const range = selectRolloverRange(
@@ -416,6 +473,9 @@ export class ContextRolloverEngine extends CompactionEngine {
     signal?: AbortSignal,
   ): Promise<CompactionResult> {
     signal?.throwIfAborted()
+    if (this.compactionOwnedElsewhere(agent)) {
+      throw new Error('context rollover refused: session compaction is owned by its agent preset')
+    }
     const session = agent.session
     const notes = this.config.notesEnabled
       ? await this.notesStore(session).renderAll(this.config.handoffMaxChars)

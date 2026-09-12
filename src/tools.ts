@@ -8,6 +8,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type TokenMeter from '@deepseek-ai/dsh-token-meter'
@@ -23,6 +24,12 @@ export interface RolloverToolDependencies {
   readonly meter: TokenMeter
   /** Pending rollover requests keyed by session id, owned by the engine. */
   readonly pendingRollovers: Map<string, PendingRollover>
+  /**
+   * Whether another backend owns compaction for an agent's session (a preset
+   * session reaching this host-registered tool). The engine wires its own
+   * ownership check here so `new_context` stays honest everywhere.
+   */
+  readonly compactionOwnedElsewhere: (agent: { ctx: Context }) => boolean
 }
 
 /** Require the session an execution is running for. */
@@ -71,14 +78,27 @@ function newContextTool(deps: RolloverToolDependencies) {
           accepted: { type: 'boolean', required: true },
         },
       },
-      render: () => [{
-        type: 'text',
-        text: 'A new context window will start without summarizing conversation history.',
-      }],
+      render: (_args, rawValue) => {
+        const value = rawValue as unknown as { accepted?: boolean }
+        return [{
+          type: 'text',
+          text: value.accepted === false
+            ? 'No new context window will start: this session compacts through its agent preset, '
+            + 'not through context rollover. Open a new session on the standard-rollover preset to roll over; '
+            + 'notes and history keep working here.'
+            : 'A new context window will start without summarizing conversation history.',
+        }]
+      },
     },
     isConcurrencySafe: () => false,
     async execute(args, exec) {
       const session = requireSession(exec)
+      // A preset-owned session reaches this host-registered tool only when
+      // the preset does not shadow it. Recording the request would promise a
+      // boundary the deferring engine never crosses, so answer honestly.
+      if (exec.agent !== undefined && deps.compactionOwnedElsewhere(exec.agent)) {
+        return { accepted: false }
+      }
       const handoff = args.handoff ?? null
       if (handoff !== null && handoff.length > deps.config.handoffMaxChars) {
         throw new Error(

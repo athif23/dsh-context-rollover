@@ -18,7 +18,9 @@ protocol and compaction transaction.
 ## How it works
 
 The plugin provides the active `ctx.compaction` engine (it disables
-`dsh-compaction-basic` in its bundle patch). A rollover is a real DSH
+`dsh-compaction-basic` in its bundle patch). On the Web profile the engine
+must additionally live in the session's agent preset — see
+[Web profiles](#web-profiles-preset-sessions) below. A rollover is a real DSH
 compaction: `compaction/start` → `compaction/summary` → one replacement
 `user/message` with full source provenance → `compaction/end` — but the
 "summary" is a **deterministic checkpoint** (durable notes + handoff or
@@ -68,7 +70,9 @@ Responsibilities stay split (the Codex lesson):
 ## What this plugin touches
 
 - **Registers four model-facing tools** (`new_context`, `get_context_remaining`, `notes`, `history`)
-  and one system-prompt section — visible in every session of the profile that mounts it.
+  and one system-prompt section — on headless profiles in every session; on
+  the Web profile only inside `standard-rollover` sessions (other presets stay
+  exactly as shipped).
 - **Writes files** in exactly one place: markdown notes under `<dsh home>/notes/<sessionId>/`.
   Nothing else on disk is written; no network calls, no telemetry.
 - **Replaces the active compaction backend** (`compaction-basic` is disabled by the bundle patch).
@@ -127,6 +131,43 @@ The bundle's `cordis.patch.yml` disables `dsh-compaction-basic` and mounts the
 `context-rollover` engine itself. `command-compact`, the token meter, and the
 compaction invariant companions need no changes — they depend only on
 `ctx.compaction`.
+
+### Web profiles (preset sessions)
+
+Headless and other base-only profiles are done after the install above: the
+host engine *is* the session's engine, no roster exists, and nothing stands
+down. The Web profile is different — its sessions compose compaction from
+their **agent preset**, not from the host — so the bundle additionally
+registers a shipped `standard-rollover` preset ("Standard + rollover
+(experimental)" in the picker) beside the deployment's own set. Restart the
+host once after install, then open **new** sessions on it to try the
+experiment; `standard` stays the default. Existing sessions stay on whatever
+they started with.
+
+No commands, no profile edits. Two behaviors make that hold:
+
+- The host engine **defers to any preset-owned backend**: on a `standard`
+  session the shipped summarizer runs alone (previously the two backends
+  raced each pressure signal); on `standard-rollover` the preset's rollover
+  engine runs alone; headless sessions keep the host engine.
+- The preset's tools and prompt section shadow the host's same-named ones
+  per session, so the model sees exactly one `new_context`/`notes`/`history`
+  set and one guidance section. On preset deployments the host row registers
+  no tools at all, so `standard` and `minimal` sessions never see
+  rollover-framed tools.
+
+Custom thresholds belong to your own preset copy (the supported customization
+flow: copy `standard-rollover` in the picker and edit the `context-rollover`
+row) — the shipped preset carries the defaults below. If a deployment
+restates the whole `agent-presets` config in a later patch layer, that layer
+wins and hides the shipped preset; re-adding the bundle's root there
+restores it. Uninstalling the bundle removes the preset: sessions already on
+it keep running, new ones must pick another preset.
+
+Maintainers: `presets/standard-rollover/` is generated, not authored —
+re-run `pnpm preset:sync` after harness updates and commit the refresh. The
+sync keeps everything else byte-identical and fails loud when the shipped
+`standard` shape drifts.
 
 Configuration (cordis.yml `config` on the plugin row):
 

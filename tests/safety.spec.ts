@@ -48,15 +48,19 @@ describe('automatic pressure rollover', () => {
       // 100 tokens of a 100k window: the first honest reading crosses it.
       thresholdRatio: 0.001,
       reminderThresholdRatio: 0.001,
-      // Tail budget above the whole (tiny) surface: the rollover replaces
-      // everything, and the shrink guard compares against the full span.
-      retainTokens: 2000,
+      // Zero tail budget: the trailing message prices at zero, so the budget
+      // is already met there and the shadow covers the whole middle span
+      // (everything but the system head and the tail).
+      retainTokens: 0,
     })
     // Long answers so the shadowed span's priced surface dwarfs the
-    // checkpoint (the shrink guard compares heuristic node pricing).
+    // checkpoint (the shrink guard compares heuristic node pricing). Turn two
+    // opens with a tool call: its pre-step still sees turn one fully closed,
+    // so the span covers it past the system head.
     const adapter = new ScriptedAdapter([
       usageResponse(`research answer one ${'detail '.repeat(600)}`, 5000),
-      usageResponse('research answer two', 6000),
+      toolCall('get_context_remaining', '{}', 'c1'),
+      usageResponse(`research answer two ${'detail '.repeat(600)}`, 6000),
     ])
     ctx.llm.registerAdapter(['mock'], adapter)
 

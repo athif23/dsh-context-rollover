@@ -11,6 +11,7 @@ import { Context } from '@deepseek-ai/cordis'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { createSystemMessage } from '@deepseek-ai/dsh-llm'
 import { commitRollover, countRollovers, rolloverSummarySeqs, selectRolloverRange, ROLLOVER_PROVIDER } from '../src/rollover.ts'
 import { sessionEventAt } from '../src/compat.ts'
 import { appendExchange, closedConversation, derivedTexts } from './harness.ts'
@@ -40,18 +41,33 @@ describe('selectRolloverRange', () => {
     expect(texts.some(text => text.includes('exchange 4'))).toBe(true)
   })
 
-  it('replaces the whole surface when the retention budget covers it', async () => {
+  it('returns null when the retention budget covers the whole surface', async () => {
     const meter = await bareMeter()
     const session = closedConversation(2)
     const measurement = meter.measure(session)
     const total = measurement.nodes.reduce((sum, node) => sum + node.tokens, 0)
-    const range = selectRolloverRange(session, measurement, total + 1)
+    // The retention budget covers everything past the head: no tail to
+    // preserve means no compactable span (mirrors the shipped backend).
+    expect(selectRolloverRange(session, measurement, total + 1)).toBeNull()
+  })
+
+  it('never includes a system/message head node in the range', async () => {
+    const meter = await bareMeter()
+    const session = Session.create(SessionId(`head-${Math.random().toString(36).slice(2, 8)}`))
+    session.append('system/message', {
+      turn: 1,
+      step: 1,
+      message: createSystemMessage('persona', 'test'),
+    }, { surfaceOp: 'append' })
+    appendExchange(session, 1, 'first')
+    appendExchange(session, 2, 'second')
+    const measurement = meter.measure(session)
+    const range = selectRolloverRange(session, measurement, 0)
     expect(range).not.toBeNull()
     if (range === null) return
-    const nodes = session.surface.nodes
-    expect(range.start).toBe(nodes[0])
-    expect(range.end).toBe(nodes[nodes.length - 1])
-    expect(range.shadowedSeqs).toEqual([...nodes])
+    // Newer hosts reject rewriting node 0 while it holds the system prompt.
+    expect(range.start).toBe(session.surface.nodes[1])
+    expect(range.shadowedSeqs).not.toContain(session.surface.nodes[0])
   })
 })
 

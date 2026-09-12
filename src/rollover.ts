@@ -25,7 +25,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type TokenMeter from '@deepseek-ai/dsh-token-meter'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import { nodeHeuristicTokens, sessionEventAt, sessionEvents } from './compat.ts'
+import { nodeHeuristicTokens, replaceSurfaceOp, sessionEventAt, sessionEvents } from './compat.ts'
 import type { Seq } from './compat.ts'
 import { buildCheckpointText } from './checkpoint.ts'
 import type { CheckpointInput, RolloverReason } from './checkpoint.ts'
@@ -94,29 +94,28 @@ export function selectRolloverRange(
     if (accumulated >= retainTokens) break
   }
   const first = surfaceNodes[0]
-  const last = surfaceNodes[surfaceNodes.length - 1]
-  if (keepFromIdx === 0 || accumulated < retainTokens) {
-    // The retention budget covers the whole surface: there is no tail to
-    // preserve, so the rollover replaces everything and the shrink guard
-    // rejects it when even that would not free context.
-    if (first === undefined || last === undefined) return null
-    return { start: first, end: last, shadowedSeqs: [...surfaceNodes] }
-  }
-  if (keepFromIdx === undefined) return null
+  // A `system/message` at surface node 0 is never inside the range: newer
+  // hosts reject rewriting it with anything but a single-node system rewrite.
+  // Without one the range starts at node 0, which keeps this identical to the
+  // old behavior on hosts without a system head.
+  const head = first === undefined ? undefined : sessionEventAt(session, first)
+  const firstIdx = head !== undefined && (head.type as string) === 'system/message' ? 1 : 0
+  if (keepFromIdx === undefined || keepFromIdx <= firstIdx) return null
 
-  while (keepFromIdx > 0) {
+  while (keepFromIdx > firstIdx) {
     const candidate = surfaceNodes[keepFromIdx]
     if (candidate !== undefined && toolPairingBalancedBefore(session, candidate)) break
     keepFromIdx -= 1
   }
-  if (keepFromIdx === 0) return null
+  if (keepFromIdx <= firstIdx) return null
 
+  const start = surfaceNodes[firstIdx]
   const cutoff = surfaceNodes[keepFromIdx - 1]
-  if (first === undefined || cutoff === undefined) return null
+  if (start === undefined || cutoff === undefined) return null
   return {
-    start: first,
+    start,
     end: cutoff,
-    shadowedSeqs: surfaceNodes.slice(0, keepFromIdx),
+    shadowedSeqs: surfaceNodes.slice(firstIdx, keepFromIdx),
   }
 }
 
@@ -278,7 +277,9 @@ export async function commitRollover(
       model: `deterministic/window-${options.checkpoint.windowNumber}`,
     })
     session.append('user/message', checkpointMessage, {
-      surfaceOp: { op: 'replace', start, end },
+      // The op shape is host-versioned (see replaceSurfaceOp); the cast is
+      // the single typed escape for the line this host does not declare.
+      surfaceOp: replaceSurfaceOp(start, end) as never,
       sourceEventSeqs: [startEvent.seq, summaryEvent.seq, ...selection.shadowedSeqs],
     })
     const endEvent = session.append('compaction/end', lifecycle)

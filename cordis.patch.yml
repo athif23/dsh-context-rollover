@@ -10,3 +10,23 @@
     - id: context-rollover
       name: dsh-context-rollover
       config: {}
+
+# Web profiles compose compaction per session from agent presets, where a host
+# engine never runs: this engine defers to any preset-owned backend, so the
+# host row above only serves rosterless deployments (headless, base-only
+# profiles). This row registers the shipped `standard-rollover` preset beside
+# the deployment's own set — installing the bundle is enough: restart once,
+# then open new sessions on it. `baseUrl` is the profile directory at boot,
+# which keeps the path correct in every install layout (profile, link, and
+# registry installs). Profiles without a preset roster (headless) report one
+# harmless loader warning for the unmatched id and are otherwise unaffected. A
+# deployment that restates the whole `agent-presets` config in a later layer
+# takes precedence and simply hides this preset.
+- id: agent-presets
+  config:
+    default: standard
+    roots:
+      - path: !!js process.getBuiltinModule('node:url').fileURLToPath(new URL('node_modules/dsh-context-rollover/presets/', baseUrl))
+        trust: system
+    includeShippedRoot: true
+    includeUserRoot: true

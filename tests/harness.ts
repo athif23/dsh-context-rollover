@@ -123,7 +123,10 @@ export async function mountTestContext(): Promise<Context> {
   await ctx.plugin(AgentInvariant)
   await ctx.plugin(AgentLoopInvariant)
   await ctx.plugin(CompactionInvariant)
-  await ctx.plugin(SessionProjectionRegistry)
+  // Newer checkouts mount the projection registry inside
+  // mountAgentLoopTestDependencies; older ones do not. Mount it exactly once
+  // either way so the harness works against both host lines.
+  if (ctx.get('sessionProjections') === undefined) await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(TokenMeter)
   return ctx
