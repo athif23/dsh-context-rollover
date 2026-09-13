@@ -11,7 +11,7 @@
  * @module dsh-context-rollover
  */
 
-import { Context } from '@deepseek-ai/cordis'
+import { Context, symbols } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compaction'
@@ -62,6 +62,11 @@ function rosterOf(ctx: Context): AgentPresetRoster | undefined {
   return roster as AgentPresetRoster
 }
 
+/** Resolve a Cordis traced service proxy to the concrete registered instance. */
+function concreteCompaction(engine: CompactionEngine): CompactionEngine {
+  return (engine as CompactionEngine & { [symbols.original]?: CompactionEngine })[symbols.original] ?? engine
+}
+
 export type { RolloverConfig, ResolvedRolloverConfig } from './config.ts'
 export { buildCheckpointText, buildRecoveryRecord } from './checkpoint.ts'
 export { NotesStore, resolveNotePath } from './notes.ts'
@@ -94,6 +99,7 @@ export class ContextRolloverEngine extends CompactionEngine {
     notesEnabled: z.boolean(),
     historyEnabled: z.boolean(),
     notesDir: z.string(),
+    modelSurface: z.union(['auto', 'always'] as const),
   })
 
   /** Resolved and validated configuration. */
@@ -115,16 +121,7 @@ export class ContextRolloverEngine extends CompactionEngine {
 
   /** Mount the model-facing tools. */
   private registerTools(): void {
-    // Preset deployments surface these tools from their own preset
-    // composition (which shadows a global registration per session), so the
-    // host row registers nothing there: rollover-framed tools would otherwise
-    // leak into presets that never opted in (standard, minimal, ...).
-    // Rosterless deployments (headless, base-only profiles) have no presets
-    // and keep the global registration. Read at construction — bundle order
-    // mounts the roster first in practice; if a roster ever appears later,
-    // the global tools remain as the honest fallback (new_context redirects
-    // instead of promising).
-    if (rosterOf(this.ctx) !== undefined) return
+    if (!this.registersModelSurface()) return
     const deps = {
       config: this.config,
       meter: this.ctx.tokenMeter,
@@ -138,11 +135,17 @@ export class ContextRolloverEngine extends CompactionEngine {
 
   /** Mount the stable context-management guidance section. */
   private registerGuidance(): void {
+    if (!this.registersModelSurface()) return
     this.ctx.systemPrompt.section({
       name: 'context:rollover',
       order: 2350,
       text: CONTEXT_MANAGEMENT_GUIDANCE,
     })
+  }
+
+  /** Whether this row owns the model-facing tools and guidance. */
+  private registersModelSurface(): boolean {
+    return this.config.modelSurface === 'always' || rosterOf(this.ctx) === undefined
   }
 
   /** Register the pending-rollover, pressure, and overflow lifecycle listeners. */
@@ -378,7 +381,7 @@ export class ContextRolloverEngine extends CompactionEngine {
     const roster = rosterOf(this.ctx)
     if (roster === undefined) return false
     const owned = roster.serviceFor(agent, 'compaction')
-    return owned !== undefined && owned !== this
+    return owned !== undefined && concreteCompaction(owned) !== concreteCompaction(this)
   }
 
   /**

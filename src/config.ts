@@ -37,6 +37,13 @@ export interface RolloverConfig {
   historyEnabled?: boolean
   /** Base directory for note files; defaults to `<dsh home>/notes/<session id>`. */
   notesDir?: string
+  /**
+   * Model-surface registration: `auto` registers tools and guidance only
+   * where no preset roster exists (the host row), while `always` registers
+   * them unconditionally (the preset row, which owns its composition).
+   * Defaults to `auto`.
+   */
+  modelSurface?: 'auto' | 'always'
 }
 
 /** Schemastery validation for {@link RolloverConfig}. */
@@ -49,6 +56,7 @@ export const Config: z<RolloverConfig> = z.object({
   notesEnabled: z.boolean(),
   historyEnabled: z.boolean(),
   notesDir: z.string(),
+  modelSurface: z.union(['auto', 'always'] as const),
 })
 
 /** Resolved and validated rollover configuration. */
@@ -62,6 +70,7 @@ export interface ResolvedRolloverConfig {
   readonly notesEnabled: boolean
   readonly historyEnabled: boolean
   readonly notesDir: string | undefined
+  readonly modelSurface: 'auto' | 'always'
 }
 
 /** Reject a ratio that cannot represent a fraction of a context window. */
@@ -98,6 +107,12 @@ export function resolveConfig(config: RolloverConfig): ResolvedRolloverConfig {
   if (!Number.isSafeInteger(handoffMaxChars) || handoffMaxChars <= 0) {
     throw new TypeError(`context-rollover: handoffMaxChars must be a positive integer, got ${String(handoffMaxChars)}`)
   }
+  const modelSurface = config.modelSurface ?? 'auto'
+  if (modelSurface !== 'auto' && modelSurface !== 'always') {
+    throw new TypeError(
+      `context-rollover: modelSurface must be 'auto' or 'always', got ${String(modelSurface)}`,
+    )
+  }
   return {
     thresholdRatio,
     reminderThresholdRatio,
@@ -107,5 +122,6 @@ export function resolveConfig(config: RolloverConfig): ResolvedRolloverConfig {
     notesEnabled: config.notesEnabled ?? true,
     historyEnabled: config.historyEnabled ?? true,
     notesDir: config.notesDir,
+    modelSurface,
   }
 }

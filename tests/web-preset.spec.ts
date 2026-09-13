@@ -81,6 +81,8 @@ describe('make-web-preset', () => {
       expect(composition).toContain('thresholdRatio: 0.9')
       expect(composition).toContain('retainTokens: 12000')
       expect(composition).not.toContain('retainRatio')
+      // The preset row owns its model-facing tools and guidance explicitly.
+      expect(composition).toContain(`modelSurface: 'always'`)
       // Untouched rows survive byte-identical around the swap.
       expect(composition).toContain(`- id: persona\n  name: '@deepseek-ai/dsh-persona'`)
       expect(composition).toContain(`- id: command-compact\n      name: '@deepseek-ai/dsh-command-compact'`)

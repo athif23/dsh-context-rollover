@@ -150,11 +150,10 @@ No commands, no profile edits. Two behaviors make that hold:
   session the shipped summarizer runs alone (previously the two backends
   raced each pressure signal); on `standard-rollover` the preset's rollover
   engine runs alone; headless sessions keep the host engine.
-- The preset's tools and prompt section shadow the host's same-named ones
-  per session, so the model sees exactly one `new_context`/`notes`/`history`
-  set and one guidance section. On preset deployments the host row registers
-  no tools at all, so `standard` and `minimal` sessions never see
-  rollover-framed tools.
+- The preset's engine row sets `modelSurface: 'always'`, so it is the only
+  source of rollover tools and guidance in its sessions. On preset
+  deployments the host row (`modelSurface: 'auto'`) registers neither, so
+  `standard` and `minimal` sessions never see rollover-framed instructions.
 
 Custom thresholds belong to your own preset copy (the supported customization
 flow: copy `standard-rollover` in the picker and edit the `context-rollover`

@@ -119,7 +119,8 @@ export function renderEngineRow(engineEntry, options) {
     + `        thresholdRatio: ${options.thresholdRatio}\n`
     + `        reminderThresholdRatio: ${options.reminderRatio}\n`
     + `${tail}\n`
-    + `        handoffMaxChars: ${options.handoffMaxChars}`
+    + `        handoffMaxChars: ${options.handoffMaxChars}\n`
+    + `        modelSurface: 'always'`
 }
 
 /**

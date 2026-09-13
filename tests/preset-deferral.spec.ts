@@ -8,11 +8,12 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { getTraceable, type Context } from '@deepseek-ai/cordis'
 import type { CompactionEngine } from '@deepseek-ai/dsh-compaction'
 import type { SessionSeq } from '@deepseek-ai/dsh-session'
 import { countRollovers } from '../src/rollover.ts'
 import { ContextRolloverEngine } from '../src/index.ts'
+import { resolveConfig } from '../src/config.ts'
 import {
   engineHarness,
   followup,
@@ -63,7 +64,9 @@ describe('preset ownership', () => {
     await expect(owned.engine.compactRegion(start, end, owned.agent)).rejects.toThrow(/owned by its agent preset/)
 
     const selfOwned = await engineHarness('defer-region-self')
-    provideRoster(selfOwned.ctx, selfOwned.engine)
+    // Real agent-presets addressing returns the Cordis-traced service, not the
+    // raw constructor instance captured by lifecycle listeners.
+    provideRoster(selfOwned.ctx, getTraceable(selfOwned.ctx, selfOwned.engine))
     await expect(selfOwned.engine.compactRegion(start, end, selfOwned.agent)).rejects.toThrow(/not found in surface/)
   })
 
@@ -100,6 +103,8 @@ describe('preset ownership', () => {
     for (const name of ['new_context', 'get_context_remaining', 'notes', 'history']) {
       expect(ctx.tools.get(name)).toBeUndefined()
     }
+    const prompt = await ctx.systemPrompt.assemble({})
+    expect(prompt.sections.some(section => section.text.includes('temporary working memory'))).toBe(false)
   })
 
   it('registers global tools on rosterless deployments', async () => {
@@ -107,5 +112,29 @@ describe('preset ownership', () => {
     for (const name of ['new_context', 'get_context_remaining', 'notes', 'history']) {
       expect(ctx.tools.get(name)).toBeDefined()
     }
+  })
+
+  it(`registers model surface for the preset role even where a roster exists`, async () => {
+    const ctx = await mountTestContext()
+    provideRoster(ctx, undefined)
+    // The generated preset row sets `modelSurface: 'always'`: this engine
+    // owns its composition, so the roster must not suppress its tools or
+    // guidance.
+    const engine = new ContextRolloverEngine(ctx, {
+      notesDir: await tempNotesDir(),
+      modelSurface: 'always',
+    })
+    expect(engine).toBeDefined()
+    for (const name of ['new_context', 'get_context_remaining', 'notes', 'history']) {
+      expect(ctx.tools.get(name)).toBeDefined()
+    }
+    const prompt = await ctx.systemPrompt.assemble({})
+    expect(prompt.sections.some(section => section.text.includes('temporary working memory'))).toBe(true)
+  })
+
+  it('fails loud on an unknown model-surface role', () => {
+    expect(() => resolveConfig({ modelSurface: 'sometimes' as unknown as 'auto' }))
+      .toThrow(/modelSurface must be/)
+    expect(resolveConfig({}).modelSurface).toBe('auto')
   })
 })
