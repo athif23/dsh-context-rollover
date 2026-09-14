@@ -23,8 +23,8 @@ must additionally live in the session's agent preset — see
 [Web profiles](#web-profiles-preset-sessions) below. A rollover is a real DSH
 compaction: `compaction/start` → `compaction/summary` → one replacement
 `user/message` with full source provenance → `compaction/end` — but the
-"summary" is a **deterministic checkpoint** (durable notes + handoff or
-recovery record), never an LLM call. Raw session events stay persisted; a
+"summary" is a **deterministic checkpoint** (durable notes plus an optional
+handoff), never an LLM call. Raw session events stay persisted; a
 token-budgeted recent tail stays verbatim on the surface; `deriveMessages()`
 rebuilds automatically.
 
@@ -58,14 +58,13 @@ Responsibilities stay split (the Codex lesson):
 1. **Model-driven** (preferred): the model saves notes, calls `new_context`
    with a short handoff at a phase boundary (research → implementation, etc.).
 2. **Pressure** (safety net): above `thresholdRatio` of the window the engine
-   rolls over automatically with an uncurated **recovery record** (recent direct
-   user messages, explicitly marked as possibly stale — the fresh model is told
-   to verify live state). Below that, a **one-per-window** checkpoint reminder
-   suggests saving notes and rolling over.
+   rolls over automatically with durable notes and the recent verbatim tail.
+   Below that, a **one-per-window** checkpoint reminder suggests saving notes
+   and rolling over.
 3. **Overflow**: a provider-confirmed `CONTEXT_WINDOW_EXCEEDED` forces a
-   rollover (no tail) and the request retries.
-4. **Manual**: `/compact` keeps working — it performs a standalone rollover
-   with recovery record + tail on an idle agent.
+   rollover with the same notes + tail checkpoint and retries the request.
+4. **Manual**: `/compact` keeps working — it performs the same standalone
+   notes + tail rollover on an idle agent.
 
 ## What this plugin touches
 

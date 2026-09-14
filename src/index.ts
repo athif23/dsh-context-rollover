@@ -27,7 +27,6 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { Seq } from './compat.ts'
 import { resolveConfig } from './config.ts'
 import type { RolloverConfig, ResolvedRolloverConfig } from './config.ts'
-import { buildRecoveryRecord } from './checkpoint.ts'
 import type { RolloverReason } from './checkpoint.ts'
 import { CONTEXT_MANAGEMENT_GUIDANCE } from './guidance.ts'
 import { NotesStore } from './notes.ts'
@@ -68,7 +67,7 @@ function concreteCompaction(engine: CompactionEngine): CompactionEngine {
 }
 
 export type { RolloverConfig, ResolvedRolloverConfig } from './config.ts'
-export { buildCheckpointText, buildRecoveryRecord } from './checkpoint.ts'
+export { buildCheckpointText } from './checkpoint.ts'
 export { NotesStore, resolveNotePath } from './notes.ts'
 export { collectHistory, readHistoryItem, searchHistory } from './history.ts'
 export {
@@ -204,8 +203,8 @@ export class ContextRolloverEngine extends CompactionEngine {
       if (status === 'idle') this.overflowRetries.delete(agent)
     })
 
-    // Provider-confirmed context overflow: roll over (uncurated recovery
-    // record, no tail) and let the loop resend the request.
+    // Provider-confirmed context overflow: roll over and let the loop resend
+    // the request against the checkpoint and retained tail.
     ctx.on('agent/request-error', async (
       { agent, failure, signal },
       next,
@@ -310,9 +309,6 @@ export class ContextRolloverEngine extends CompactionEngine {
     const notes = this.config.notesEnabled
       ? await this.notesStore(session).renderAll(this.config.handoffMaxChars)
       : null
-    const recovery = request.reason === 'model-requested'
-      ? null
-      : buildRecoveryRecord(session, range.shadowedSeqs, this.config.handoffMaxChars)
     const windowNumber = countRollovers(session) + 1
     const result = await commitRollover(
       { meter: this.ctx.tokenMeter },
@@ -326,7 +322,6 @@ export class ContextRolloverEngine extends CompactionEngine {
           windowNumber,
           notes,
           handoff: request.handoff,
-          recovery,
         },
       },
     )
@@ -385,9 +380,9 @@ export class ContextRolloverEngine extends CompactionEngine {
   }
 
   /**
-   * Compact when the model failed to manage context: pressure rolls over with
-   * a recovery record above the threshold; context-overflow forces the
-   * reduction without a tail.
+   * Compact when the model failed to manage context: pressure rolls over
+   * above the threshold, while context overflow forces the same deterministic
+   * reduction before retry.
    * @param agent - agent whose latest routed request is measured.
    * @param trigger - step-boundary pressure or provider-confirmed overflow.
    * @param signal - live turn cancellation signal.
@@ -435,7 +430,6 @@ export class ContextRolloverEngine extends CompactionEngine {
       const notes = this.config.notesEnabled
         ? await this.notesStore(session).renderAll(this.config.handoffMaxChars)
         : null
-      const recovery = buildRecoveryRecord(session, range.shadowedSeqs, this.config.handoffMaxChars)
       const windowNumber = countRollovers(session) + 1
       return commitRollover(
         { meter: this.ctx.tokenMeter },
@@ -450,7 +444,6 @@ export class ContextRolloverEngine extends CompactionEngine {
             windowNumber,
             notes,
             handoff: null,
-            recovery,
           },
           flush: async () => {
             await this.ctx.sessions.flush(session)
@@ -483,7 +476,6 @@ export class ContextRolloverEngine extends CompactionEngine {
     const notes = this.config.notesEnabled
       ? await this.notesStore(session).renderAll(this.config.handoffMaxChars)
       : null
-    const recovery = buildRecoveryRecord(session, this.surfaceSeqsBetween(session, start, end), this.config.handoffMaxChars)
     const windowNumber = countRollovers(session) + 1
     return commitRollover(
       { meter: this.ctx.tokenMeter },
@@ -497,23 +489,9 @@ export class ContextRolloverEngine extends CompactionEngine {
           windowNumber,
           notes,
           handoff: null,
-          recovery,
         },
       },
     )
-  }
-
-  /** The surface seqs from `start` through `end`, in surface order. */
-  private surfaceSeqsBetween(
-    session: Session,
-    start: Seq,
-    end: Seq,
-  ): readonly Seq[] {
-    const nodes = session.surface.nodes
-    const startIdx = nodes.indexOf(start)
-    const endIdx = nodes.indexOf(end)
-    if (startIdx === -1 || endIdx === -1 || startIdx > endIdx) return []
-    return nodes.slice(startIdx, endIdx + 1)
   }
 
   /**

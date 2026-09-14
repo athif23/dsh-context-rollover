@@ -95,10 +95,9 @@ describe('ContextRolloverEngine', () => {
     const compacted = await engine.compactNow(agent, new AbortController().signal)
     expect(compacted).not.toBeNull()
     expect(countRollovers(session)).toBe(1)
-    // The manual checkpoint carries the uncurated recovery record with the
-    // direct user intent.
+    // Manual rollover carries only notes plus the retained verbatim tail.
     const texts = derivedTexts(session).join('\n')
-    expect(texts).toContain('Recovery record')
+    expect(texts).not.toContain('Recovery record')
     expect(texts).toContain('investigate the thing')
   })
 

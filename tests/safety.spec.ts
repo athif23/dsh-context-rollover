@@ -43,7 +43,7 @@ import {
 } from './harness.ts'
 
 describe('automatic pressure rollover', () => {
-  it('rolls over with a recovery record when usage crosses the threshold', async () => {
+  it('rolls over without copying shadowed user messages when usage crosses the threshold', async () => {
     const { ctx, agent, session } = await engineHarness('pressure-auto', {
       // 100 tokens of a 100k window: the first honest reading crosses it.
       thresholdRatio: 0.001,
@@ -82,8 +82,10 @@ describe('automatic pressure rollover', () => {
     }
     const texts = derivedTexts(session).join('\n')
     expect(texts).toContain('reason: pressure')
-    expect(texts).toContain('Recovery record')
-    expect(texts).toContain('turn one')
+    expect(texts).not.toContain('Recovery record')
+    // A zero-token tail deliberately leaves the shadowed prior prompt out;
+    // the fresh turn continues from its own queued prompt and result.
+    expect(texts).not.toContain('turn one')
     expect(texts).toContain('research answer two')
   })
 })
@@ -141,7 +143,8 @@ describe('context-overflow recovery', () => {
     expect(countRollovers(session)).toBe(1)
     const texts = derivedTexts(session).join('\n')
     expect(texts).toContain('reason: overflow')
-    expect(texts).toContain('Recovery record')
+    expect(texts).not.toContain('Recovery record')
+    expect(texts).toContain('next request should overflow')
     expect(texts).toContain('recovered after rollover')
     // The failing request happened, then exactly one retry.
     const answered = adapter.requests.filter(request => JSON.stringify(request).includes('overflow'))
@@ -218,8 +221,8 @@ describe('forced-span compaction', () => {
     const texts = derivedTexts(session).join('\n')
     expect(texts).toContain('<context-rollover checkpoint>')
     expect(texts).toContain('reason: manual')
-    // Assistant prose is excluded from the recovery record; direct user
-    // messages are carried verbatim by design.
+    // The selected span contributes no copied transcript to the checkpoint.
     expect(texts).not.toContain('assistant: exchange 1')
+    expect(texts).not.toContain('user: exchange 1')
   })
 })

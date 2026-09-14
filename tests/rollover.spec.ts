@@ -92,7 +92,6 @@ describe('commitRollover', () => {
           windowNumber: 1,
           notes: '- goal: prove the rollover\n- next: run tests',
           handoff: 'Continue from the notes.',
-          recovery: null,
         },
       },
     )
@@ -140,7 +139,6 @@ describe('commitRollover', () => {
           windowNumber: 1,
           notes: 'note'.repeat(5000),
           handoff: null,
-          recovery: null,
         },
       },
     )).rejects.toThrow(/not smaller than the shadowed content/)
@@ -166,7 +164,6 @@ describe('commitRollover', () => {
           windowNumber: 1,
           notes: 'note'.repeat(5000),
           handoff: null,
-          recovery: null,
         },
       },
     )).rejects.toThrow()
@@ -187,7 +184,6 @@ describe('commitRollover', () => {
           windowNumber: 1,
           notes: null,
           handoff: null,
-          recovery: null,
         },
       },
     )).resolves.toBeDefined()

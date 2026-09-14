@@ -41,7 +41,6 @@ async function rollEverything(session: Session, windowNumber: number): Promise<v
         windowNumber,
         notes: null,
         handoff: null,
-        recovery: null,
       },
     },
   )

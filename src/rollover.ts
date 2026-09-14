@@ -3,7 +3,7 @@
  * the same `compaction/start` lock, `compaction/summary` record, replacement
  * `user/message` with full source provenance, and `compaction/end` close as
  * `dsh-compaction-basic` — but the summary is a deterministic checkpoint
- * (notes + handoff or recovery record), never an LLM call. Raw events stay
+ * (notes plus an optional handoff), never an LLM call. Raw events stay
  * persisted; a recent verbatim tail stays on the surface outside the
  * replacement.
  *
