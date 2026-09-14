@@ -1,10 +1,10 @@
 /**
  * Host-version compatibility helpers. Public dsh releases lag the internal
- * alpha line: 0.1.3-alpha moved the session log behind `snapshotEvents()`,
- * while older releases (the published rc line) expose the log as `events`.
- * The replace `surfaceOp` moved the same way: newer hosts take
- * `{ op: 'replace', startSeq, endSeq }`, older ones `{ op: 'replace', start,
- * end }`, and both reject the other shape.
+ * line: the newer line exposes the session log through `snapshotEvents()`,
+ * while the published line exposes it as the `events` array. The replace
+ * `surfaceOp` moved the same way: newer hosts take `{ op: 'replace', startSeq,
+ * endSeq }`, older ones `{ op: 'replace', start, end }`, and both reject the
+ * other shape.
  *
  * @module dsh-context-rollover/compat
  */

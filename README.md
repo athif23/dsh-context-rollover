@@ -66,6 +66,12 @@ Responsibilities stay split (the Codex lesson):
 4. **Manual**: `/compact` keeps working — it performs the same standalone
    notes + tail rollover on an idle agent.
 
+Only the model-driven path carries a **handoff**. The engine never writes one
+for pressure, overflow, or manual rollovers: producing a handoff itself would
+mean either an LLM summarization call or copying older user messages into the
+fresh window, and the second option revives stale requests. Those paths
+preserve intent through notes and the recent verbatim tail instead.
+
 ## What this plugin touches
 
 - **Registers four model-facing tools** (`new_context`, `get_context_remaining`, `notes`, `history`)
@@ -80,11 +86,18 @@ Responsibilities stay split (the Codex lesson):
 
 ## Host version compatibility
 
-The plugin typechecks against **both** host lines: your development checkout
-(0.1.3-alpha, via generated tsconfig paths) and the newest packages published
-to public npm (`pnpm typecheck:compat` against `compat/node_modules`). Runtime
-differences — `snapshotEvents()` vs `events`, `eventAt`, the `TokenMeter`
-export shape, per-node heuristic pricing — are bridged in `src/compat.ts`.
+The plugin typechecks against **both** host lines: the development checkout and
+its installed profiles (`0.1.5-rc.1`, via generated tsconfig paths) and the
+newest packages published to public npm (`0.0.1-rc.1`, the
+`pnpm typecheck:compat` probe against `compat/node_modules`). Runtime
+differences are bridged in `src/compat.ts`:
+
+- the session log as `snapshotEvents()` (newer line) or `events` (published);
+- `eventAt(seq)` versus indexing that array;
+- per-node pricing as `heuristicTokens` (newer line) or `tokens`;
+- the replacement operation as `{ startSeq, endSeq }` (newer line) or
+  `{ start, end }`, probed once per process because each line rejects the
+  other's field names.
 
 Note the published `@deepseek-ai/dsh-*` packages are a *partial* mirror: some
 of their peers reference packages that were never published publicly, so a
@@ -182,6 +195,7 @@ Configuration (cordis.yml `config` on the plugin row):
         notesEnabled: true
         historyEnabled: true
         notesDir: null               # base dir override; default <dsh home>/notes
+        modelSurface: auto           # auto (host rows) | always (preset rows)
 ```
 
 ## Local development with HMR
@@ -274,6 +288,9 @@ turn continues.
 
 ## Scope and limits
 
+- A rollover checkpoint contains durable notes, the model's handoff when it
+  supplied one, and the retained verbatim tail that sits outside the
+  checkpoint. No older user prompts are copied into it.
 - Notes survive context rollovers within a session; no cross-session sync,
   embeddings, or cloud storage.
 - Notes are files, not session events: `Session.append` cannot mark a plugin's
