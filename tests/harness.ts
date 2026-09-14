@@ -209,6 +209,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ContextRolloverEngine } from '../src/index.ts'
+import { isPressureReminder } from '../src/rollover.ts'
 import type { RolloverConfig } from '../src/config.ts'
 
 /** A notes base directory for one test. */
@@ -252,17 +253,18 @@ export function errorFinish(message: string, code: string): StreamChunk[] {
   return [{ type: 'finish', reason: { kind: 'error', failure: { message, code } } }]
 }
 
-/** The plugin-attributed pressure reminder texts in the durable log. */
+/**
+ * The plugin-attributed pressure reminder texts in the durable log.
+ *
+ * The predicate is the engine's own (`isPressureReminder`), so a test can
+ * never disagree with the engine about what counts as a delivered reminder.
+ */
 export function reminderTexts(session: Session): string[] {
   return session.snapshotEvents()
-    .filter(event => event.type === 'user/message')
-    .filter(event => event.data.source.kind === 'plugin'
-      && 'plugin' in event.data.source
-      && event.data.source.plugin === 'context-rollover')
+    .filter(isPressureReminder)
     .map(event => event.data.content[0])
     .filter(block => block?.type === 'text')
     .map(block => block?.type === 'text' ? block.text : '')
-    .filter(text => text.includes('% used'))
 }
 
 /** Send one direct user message to the agent and wait for the turn to close. */

@@ -30,6 +30,22 @@ import type { Seq } from './compat.ts'
 import { buildCheckpointText } from './checkpoint.ts'
 import type { CheckpointInput, RolloverReason } from './checkpoint.ts'
 
+/**
+ * Cordis plugin name this engine registers under, as it appears in message
+ * `source.plugin` and in loader diagnostics.
+ */
+export const PLUGIN_NAME = 'context-rollover'
+
+/**
+ * Prefix of the pressure reminder's message summary.
+ *
+ * One constant serves both the sender and {@link isPressureReminder}, so the
+ * two can never disagree about what a reminder looks like. The engine's own
+ * plugin name is part of the test, and the package name is not: a predicate
+ * keyed on `dsh-context-rollover` matches nothing the engine writes.
+ */
+export const REMINDER_SUMMARY_PREFIX = 'context pressure reminder'
+
 /** The compaction/summary `provider` value written by this backend. */
 export const ROLLOVER_PROVIDER = 'dsh-context-rollover'
 
@@ -338,4 +354,127 @@ export function rolloverSummarySeqs(session: Session): Seq[] {
     }
   }
   return seqs
+}
+
+/**
+ * Claim registry for pressure reminders, hung on the session object itself.
+ *
+ * The key is a `Symbol.for(...)` — the global symbol registry — because the
+ * two engine rows that observe one pre-step are **separate module instances**:
+ * on the Web profile the host bundle row and the session's agent-preset row
+ * load this module through different paths, behind a preset `isolate` realm
+ * (they cannot share a Cordis container: `compaction` may be provided once).
+ * A module-scoped Set or WeakMap is therefore invisible to the other row, and
+ * the durable log cannot help either: `agent/pre-step` is a waterfall, and the
+ * decisions of both rows are appended only after the dispatch returns, so both
+ * rows decide before either delivery exists in the log.
+ *
+ * What both rows *do* share is the Session instance they are handed. A global
+ * symbol property on it is readable by any module instance, is invisible to
+ * serialization and to `Object.keys`, and dies with the session — which is
+ * exactly the lifetime a claim needs.
+ */
+const CLAIM_KEY = Symbol.for('dsh.context-rollover.reminder-claims')
+
+/** The claimed window numbers on one session, created on first use. */
+function claimsOn(session: Session): Set<number> {
+  const carrier = session as unknown as Record<symbol, unknown>
+  const existing = carrier[CLAIM_KEY]
+  if (existing instanceof Set) return existing as Set<number>
+  const created = new Set<number>()
+  try {
+    Object.defineProperty(session, CLAIM_KEY, {
+      value: created,
+      enumerable: false,
+      configurable: true,
+      writable: false,
+    })
+  } catch {
+    // A frozen session still works: fall back to a process-local set, which
+    // covers single-row deployments and loses only the cross-row case.
+    fallbackClaims.set(session, created)
+  }
+  return created
+}
+
+/** Claims for sessions that refuse the symbol property. */
+const fallbackClaims = new WeakMap<Session, Set<number>>()
+
+/**
+ * Identity of the context window a reminder would belong to: the session plus
+ * its rollover count, so a fresh window may remind again.
+ * @param session - session to key.
+ * @returns the window key, stable for the life of the window.
+ */
+export function reminderWindowKey(session: Session): string {
+  return `${session.id}#${countRollovers(session)}`
+}
+
+/**
+ * The one definition of "this event is a pressure reminder".
+ *
+ * The source carries the engine's own plugin name, which is not the package
+ * name: a predicate keyed on `dsh-context-rollover` never matches anything the
+ * engine writes, and silently disables whatever depends on it. The summary
+ * prefix is shared with the sender for the same reason. Every consumer — the
+ * delivery check below and the test harness — reads this predicate, so the
+ * definition cannot drift again.
+ * @param event - one logged session event.
+ * @returns true when the event is this engine's pressure reminder, narrowing
+ *   the event to a `user/message` for the caller.
+ */
+export function isPressureReminder(event: SessionEvent): event is SessionEvent<'user/message'> {
+  if (event.type !== 'user/message') return false
+  const { source } = event.data
+  return source.kind === 'plugin'
+    && 'plugin' in source
+    && source.plugin === PLUGIN_NAME
+    && source.form === 'notice'
+    && source.summary.startsWith(REMINDER_SUMMARY_PREFIX)
+}
+
+/**
+ * Whether a pressure reminder was already delivered in the session's current
+ * window, according to the durable log.
+ *
+ * This is the authority for "once per window" across turns and restarts: every
+ * engine row reads the same log, and an in-memory claim cannot survive a
+ * process restart. It cannot cover two rows deciding within one waterfall —
+ * see the claim registry above for that.
+ * @param session - session to inspect.
+ * @returns true when the current window already carries a reminder.
+ */
+export function reminderDelivered(session: Session): boolean {
+  const windowStart = (rolloverSummarySeqs(session).at(-1) ?? -1) + 1
+  return sessionEvents(session)
+    .some(event => event.seq >= windowStart && isPressureReminder(event))
+}
+
+/**
+ * Claim the current window's reminder slot, if nobody has yet.
+ *
+ * Claiming is synchronous on purpose: two engine rows can decide within one
+ * waterfall, before either delivery reaches the log.
+ * @param session - session whose window to claim.
+ * @returns true when this caller owns the reminder for the window.
+ */
+export function claimReminder(session: Session): boolean {
+  if (reminderDelivered(session)) return false
+  const claimed = claimsOn(session)
+  const windowNumber = countRollovers(session)
+  if (claimed.has(windowNumber)) return false
+  claimed.add(windowNumber)
+  return true
+}
+
+/**
+ * Drop every in-process claim for one session.
+ *
+ * Only tests need this: they reuse session ids across cases in one process,
+ * while production scopes each claim to the session it was made on.
+ * @param session - session whose claims to drop.
+ */
+export function resetReminderClaims(session: Session): void {
+  claimsOn(session).clear()
+  fallbackClaims.delete(session)
 }
