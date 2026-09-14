@@ -24,6 +24,11 @@ tool.
 - After a rollover, continue primarily from your notes, the recent conversation,
   and live repository state. Do not reconstruct the previous context from
   history; use history only to recover a specific missing detail.
-- get_context_remaining reports how much context you have left. A reminder near
-  the automatic rollover point appears at most once per window.
+- get_context_remaining is a tool you invoke with no arguments; it returns the
+  measured numbers. When you need to know how much context is left — or when
+  you are asked about it — call it and report the numbers it returned. The
+  current context state is not readable from repository files, from the plugin
+  source, or from memory: only that tool reports it, and claiming a reading you
+  did not receive is a fabrication even when the guess sounds plausible.
+- A reminder near the automatic rollover point appears at most once per window.
 `.trim()

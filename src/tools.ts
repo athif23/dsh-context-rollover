@@ -116,7 +116,10 @@ function newContextTool(deps: RolloverToolDependencies) {
 function getContextRemainingTool(deps: RolloverToolDependencies) {
   return defineTool({
     name: 'get_context_remaining',
-    description: 'Get the remaining tokens in the current context window, and the headroom before the automatic rollover.',
+    description:
+      'Get the remaining tokens in the current context window, and the headroom before the automatic '
+      + 'rollover. Takes no arguments; call it to read the measured numbers — the current context state '
+      + 'is not derivable from repository files or from the plugin source.',
     parameters: {},
     output: {
       schema: { type: 'json' },
