@@ -87,7 +87,7 @@ preserve intent through notes and the recent verbatim tail instead.
 ## Host version compatibility
 
 The plugin typechecks against **both** host lines: the development checkout and
-its installed profiles (`0.1.5-rc.1`, via generated tsconfig paths) and the
+its installed profiles (`0.1.6-alpha.1`, via generated tsconfig paths) and the
 newest packages published to public npm (`0.0.1-rc.1`, the
 `pnpm typecheck:compat` probe against `compat/node_modules`). Runtime
 differences are bridged in `src/compat.ts`:
