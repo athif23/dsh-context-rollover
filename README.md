@@ -15,6 +15,22 @@ separation) and `pi-posthorse`. Codex is the architectural reference; DSH is the
 implementation authority — everything runs through DSH's own surface-replace
 protocol and compaction transaction.
 
+> **Web profile: rollover only runs in the `standard-rollover` preset.**
+>
+> Installing this bundle is not enough on its own. The Web profile composes
+> compaction from the session's **agent preset**, and the default preset
+> (`standard`) stays exactly as shipped: it keeps the built-in summarizer and
+> gets **no rollover tools and no rollover guidance** — no `new_context`, no
+> `get_context_remaining`, no `notes`, no `history`. A `standard` session
+> cannot roll over at all.
+>
+> To use it, open a **new** session and select **"Standard + rollover
+> (experimental)"** in the preset picker *before sending the first message* —
+> a session's preset is frozen once its first turn runs.
+>
+> Headless and other rosterless profiles are the exception: they have no preset
+> roster, so the host engine serves every session and there is nothing to pick.
+
 ## How it works
 
 The plugin provides the active `ctx.compaction` engine (it disables
@@ -153,8 +169,10 @@ their **agent preset**, not from the host — so the bundle additionally
 registers a shipped `standard-rollover` preset ("Standard + rollover
 (experimental)" in the picker) beside the deployment's own set. Restart the
 host once after install, then open **new** sessions on it to try the
-experiment; `standard` stays the default. Existing sessions stay on whatever
-they started with.
+experiment; `standard` stays the default. Pick the preset while the session is
+still **blank**: the creation header is deep-frozen, and a session may only
+change preset before its first turn runs, so an already-started `standard`
+session cannot be moved onto rollover.
 
 No commands, no profile edits. Two behaviors make that hold:
 
