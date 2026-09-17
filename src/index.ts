@@ -31,7 +31,13 @@ import type { RolloverReason } from './checkpoint.ts'
 import { CONTEXT_MANAGEMENT_GUIDANCE } from './guidance.ts'
 import { NotesStore } from './notes.ts'
 import { sessionEventAt } from './compat.ts'
-import { commitRollover, countRollovers, selectRolloverRange } from './rollover.ts'
+import {
+  claimReminder,
+  commitRollover,
+  countRollovers,
+  REMINDER_SUMMARY_PREFIX,
+  selectRolloverRange,
+} from './rollover.ts'
 import { createRolloverTools } from './tools.ts'
 import type { PendingRollover } from './state.ts'
 
@@ -105,7 +111,6 @@ export class ContextRolloverEngine extends CompactionEngine {
   readonly config: ResolvedRolloverConfig
 
   private readonly pendingRollovers = new Map<string, PendingRollover>()
-  private readonly reminderDelivered = new Set<string>()
   /** Turns (session + seq at crossing time) that already had a pressure rollover. */
   private readonly pressureRolledTurns = new Set<string>()
   private readonly overflowRetries = new WeakMap<Agent, number>()
@@ -237,8 +242,10 @@ export class ContextRolloverEngine extends CompactionEngine {
     if (measurement.baseline.kind === 'none') return undefined
     const reminderTokens = Math.floor(contextWindow * this.config.reminderThresholdRatio)
     if (measurement.totalTokens < reminderTokens) return undefined
-    if (this.reminderDelivered.has(session.id)) return undefined
-    this.reminderDelivered.add(session.id)
+    // Claimed synchronously: on a preset deployment the host row and the
+    // preset row both observe this pre-step, and neither delivery is in the
+    // log yet when the second one decides.
+    if (!claimReminder(session)) return undefined
     const rolloverTokens = Math.floor(contextWindow * this.config.thresholdRatio)
     const percent = Math.min(100, Math.round((measurement.totalTokens / contextWindow) * 100))
     return createUserMessage({
@@ -253,7 +260,7 @@ export class ContextRolloverEngine extends CompactionEngine {
         kind: 'plugin',
         plugin: name,
         form: 'notice',
-        summary: boundContextSummary(`context pressure reminder (${percent}% used)`),
+        summary: boundContextSummary(`${REMINDER_SUMMARY_PREFIX} (${percent}% used)`),
       },
     })
   }
@@ -325,7 +332,6 @@ export class ContextRolloverEngine extends CompactionEngine {
         },
       },
     )
-    this.reminderDelivered.delete(session.id)
     this.ctx.logger.info(
       `context rollover (${request.reason}): window ${windowNumber} started; `
       + `shadowed ${result.shadowedSeqs.length} surface nodes (~${result.shadowedTokenCount} tokens)`,
