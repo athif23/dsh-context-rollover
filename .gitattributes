@@ -1,0 +1,3 @@
+# The web-preset test byte-compares these against generator output (LF).
+# Without this, Windows checkouts get CRLF and the test fails.
+presets/** -text
