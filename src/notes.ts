@@ -121,16 +121,23 @@ export class NotesStore {
   /**
    * Append text to one note file, creating it when missing. Appends always
    * end with a newline so successive appends stay line-oriented.
+   *
+   * Only a missing file counts as "start from empty". Every other read failure
+   * (EACCES, EISDIR, EIO, a symlink loop) is re-thrown, because the write below
+   * replaces the whole file: treating an unreadable note as an empty one would
+   * destroy its contents and still report success.
+   *
    * @param path - store-relative note path.
    * @param text - text to append exactly as provided.
+   * @throws when the existing note cannot be read for any reason but absence.
    */
   async append(path: string, text: string): Promise<void> {
     const absolute = resolveNotePath(this.dir, path)
-    let current: string
+    let current = ''
     try {
       current = await readFile(absolute, 'utf8')
-    } catch {
-      current = ''
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
     const separator = current.length > 0 && !current.endsWith('\n') ? '\n' : ''
     await mkdir(join(absolute, '..'), { recursive: true })

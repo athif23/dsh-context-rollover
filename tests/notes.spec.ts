@@ -5,7 +5,7 @@
  * @module tests/notes.spec
  */
 
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -44,6 +44,36 @@ describe('NotesStore', () => {
     expect(matches).toHaveLength(1)
     expect(matches[0]).toMatchObject({ path: 'state.md', line: 3 })
   })
+
+  it('creates the file when append finds nothing to read', async () => {
+    const store = await tempStore()
+    await store.append('fresh.md', 'first line')
+    await store.append('fresh.md', 'second line')
+    expect(await store.read('fresh.md')).toBe('first line\nsecond line\n')
+  })
+
+  // A note that exists but cannot be read is not an empty note. Append
+  // rewrites the whole file from what it read, so mistaking one for the other
+  // replaces the note with the appended text and reports success.
+  // chmod 0o200 leaves the file writable and unreadable, which is exactly the
+  // asymmetry that made the old `catch { current = '' }` destructive.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'refuses to overwrite a note it cannot read',
+    async () => {
+      const store = await tempStore()
+      await store.write('state.md', 'existing\n')
+      const absolute = join(store.root, 'state.md')
+      const original = await readFile(absolute, 'utf8')
+      await chmod(absolute, 0o200)
+      try {
+        await expect(store.append('state.md', 'appended')).rejects.toMatchObject({ code: 'EACCES' })
+      } finally {
+        await chmod(absolute, 0o600)
+      }
+      // The whole point of the fix: the note survives byte for byte.
+      expect(await readFile(absolute, 'utf8')).toBe(original)
+    },
+  )
 
   it('rejects path traversal and unsafe segments', async () => {
     const store = await tempStore()
