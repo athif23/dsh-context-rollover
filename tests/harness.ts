@@ -10,11 +10,6 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
-import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
-import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
-import * as CompactionInvariant from '@deepseek-ai/dsh-compaction/invariant'
 import {
   createAssistantMessage,
   createToolResultMessage,
@@ -29,6 +24,17 @@ import TokenMeter from '@deepseek-ai/dsh-token-meter'
 
 export const MODEL = 'mock'
 
+/**
+ * The stream-request type of whichever host line this suite runs against: the
+ * internal line passes `{ messages: readonly Message[] }`, while the current
+ * line passes `GenerateOptions` carrying request-shaped messages. Deriving the
+ * parameter from `LlmAdapter` keeps one adapter source valid on both lines.
+ */
+type StreamOptions = Parameters<LlmAdapter['stream']>[0]
+
+/** The message type inside {@link StreamOptions}. */
+type StreamMessage = StreamOptions extends { messages: readonly (infer M)[] } ? M : never
+
 /** The scripted adapter's per-request chunk script. */
 export type StreamScript = readonly StreamChunk[][]
 
@@ -37,7 +43,7 @@ export const CONTEXT_WINDOW = 100_000
 
 /** One text answer per request, with a large advertised context window. */
 export class TextAdapter extends LlmAdapter {
-  readonly requests: Message[][] = []
+  readonly requests: StreamMessage[][] = []
 
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return Promise.resolve({
@@ -48,7 +54,7 @@ export class TextAdapter extends LlmAdapter {
     })
   }
 
-  override async *stream(options: { messages: readonly Message[] }): AsyncIterable<StreamChunk> {
+  override async *stream(options: StreamOptions): AsyncIterable<StreamChunk> {
     this.requests.push([...options.messages])
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'block-end', index: 0, block: { type: 'text', text: 'answer' } }
@@ -61,7 +67,7 @@ export class TextAdapter extends LlmAdapter {
  * order; a final entry repeats when the script is exhausted.
  */
 export class ScriptedAdapter extends LlmAdapter {
-  readonly requests: Message[][] = []
+  readonly requests: StreamMessage[][] = []
 
   constructor(private readonly script: StreamScript) {
     super()
@@ -76,7 +82,7 @@ export class ScriptedAdapter extends LlmAdapter {
     })
   }
 
-  override async *stream(options: { messages: readonly Message[] }): AsyncIterable<StreamChunk> {
+  override async *stream(options: StreamOptions): AsyncIterable<StreamChunk> {
     this.requests.push([...options.messages])
     const entry = this.script[Math.min(this.requests.length - 1, this.script.length - 1)]
     if (entry === undefined) throw new Error('scripted adapter ran out of entries')
@@ -111,18 +117,77 @@ export function toolCall(name: string, argumentsJson: string, callId = 'c1'): St
 }
 
 /**
+ * Companion invariant packages of the internal host line. That line ships all
+ * of them; the current line ships none, so the suite mounts them wherever they
+ * resolve instead of failing to load.
+ */
+const INVARIANT_COMPANIONS = [
+  '@deepseek-ai/dsh-invariants',
+  '@deepseek-ai/dsh-session/invariant',
+  '@deepseek-ai/dsh-agent/invariant',
+  '@deepseek-ai/dsh-agent-loop/invariant',
+  '@deepseek-ai/dsh-compaction/invariant',
+] as const
+
+/** Whether a failed import means this host line does not ship the module. */
+function moduleAbsent(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code
+  if (code === 'ERR_MODULE_NOT_FOUND' || code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') return true
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes('Cannot find module')
+    || message.includes('Cannot find package')
+    || message.includes('Failed to resolve import')
+}
+
+/**
+ * Minimal shape `ctx.plugin` accepts for a dynamically loaded companion. The
+ * optional config keeps the call one argument on both host lines, whose
+ * plugin-config spread types differ.
+ */
+type CompanionPlugin = new (ctx: Context, config?: undefined) => unknown
+
+/**
+ * Mount the invariant companions this host line ships.
+ *
+ * A line without them is not a failure: the suite validates rollover
+ * transactions through DSH's own invariants wherever they exist, and through
+ * the compaction protocol itself everywhere. A partial set is a failure — the
+ * line ships all of them or none, so resolving some means the probe is broken
+ * rather than the host line being different.
+ * @param ctx - test context receiving the companions.
+ */
+async function mountInvariantCompanions(ctx: Context): Promise<void> {
+  const mounted: string[] = []
+  for (const specifier of INVARIANT_COMPANIONS) {
+    let loaded: { default?: unknown }
+    try {
+      // Resolved through the same generated aliases as every other import; the
+      // variable specifier keeps this file loadable on a line without them.
+      loaded = await import(specifier) as { default?: unknown }
+    } catch (error: unknown) {
+      if (moduleAbsent(error)) continue
+      throw error
+    }
+    await ctx.plugin((loaded.default ?? loaded) as CompanionPlugin)
+    mounted.push(specifier)
+  }
+  if (mounted.length > 0 && mounted.length !== INVARIANT_COMPANIONS.length) {
+    throw new Error(
+      `invariant companions resolved partially (${mounted.length}/${INVARIANT_COMPANIONS.length}): `
+      + `${INVARIANT_COMPANIONS.filter(one => !mounted.includes(one)).join(', ')}`,
+    )
+  }
+}
+
+/**
  * Mount the full prerequisite stack, including the invariant companions: every
  * committed rollover is checked against DSH's own session/agent/compaction
- * invariants.
+ * invariants wherever the host line provides them.
  */
 export async function mountTestContext(): Promise<Context> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(InvariantRegistry)
-  await ctx.plugin(SessionInvariant)
-  await ctx.plugin(AgentInvariant)
-  await ctx.plugin(AgentLoopInvariant)
-  await ctx.plugin(CompactionInvariant)
+  await mountInvariantCompanions(ctx)
   // Newer checkouts mount the projection registry inside
   // mountAgentLoopTestDependencies; older ones do not. Mount it exactly once
   // either way so the harness works against both host lines.
@@ -185,11 +250,17 @@ export function appendExchange(
   session.append('turn/end', { turn, reason: { kind: 'completed' } })
 }
 
-/** A closed multi-turn session with tool calls in the early exchanges. */
-export function closedConversation(turns = 4): Session {
+/**
+ * A closed multi-turn session with tool calls in the early exchanges.
+ * @param turns - number of closed exchanges to append.
+ * @param detail - extra text appended to every exchange, for cases that need
+ *   the shadowed content to outweigh the rollover checkpoint (the shrink guard
+ *   refuses a checkpoint that is not genuinely smaller than what it replaces).
+ */
+export function closedConversation(turns = 4, detail = ''): Session {
   const session = Session.create(SessionId(`closed-${turns}-${Math.random().toString(36).slice(2, 8)}`))
   for (let index = 1; index <= turns; index += 1) {
-    appendExchange(session, index, `exchange ${index}`, index <= 2)
+    appendExchange(session, index, `exchange ${index}${detail}`, index <= 2)
   }
   return session
 }

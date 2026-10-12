@@ -20,7 +20,7 @@ import {
 } from '@deepseek-ai/dsh-compaction'
 import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
-import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
+import { boundContextSummary, createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type TokenMeter from '@deepseek-ai/dsh-token-meter'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
@@ -31,17 +31,49 @@ import { buildCheckpointText } from './checkpoint.ts'
 import type { CheckpointInput, RolloverReason } from './checkpoint.ts'
 
 /**
- * Cordis plugin name this engine registers under, as it appears in message
- * `source.plugin` and in loader diagnostics.
+ * Cordis plugin name this engine registers under, as it appears in loader
+ * diagnostics and in the legacy `source.plugin` field of reminders written
+ * before producers named their own message sources.
  */
 export const PLUGIN_NAME = 'context-rollover'
+
+/**
+ * Producer-owned `kind` this engine stamps on its context-pressure reminder.
+ *
+ * DSH session format v4 refuses the retired shared `{ kind: 'plugin', plugin }`
+ * wrapper at durable admission (`format v4 message requires a producer-owned
+ * source kind`), so each producer names itself. The name is the cordis plugin
+ * name, which is also the suffix the v3→v4 migration gives an unrecognized
+ * plugin string (`plugin:context-rollover`).
+ */
+export const REMINDER_SOURCE_KIND = 'context-rollover'
+
+/**
+ * Message source this engine stamps on its context-pressure reminder: a
+ * one-off `notice` whose summary is {@link REMINDER_SUMMARY_PREFIX} plus the
+ * measured pressure.
+ */
+export interface RolloverReminderSource {
+  readonly kind: 'context-rollover'
+  readonly form: 'notice'
+  readonly summary: string
+}
+
+// Message sources are a merge-extensible map with no shared catch-all kind:
+// declaring this producer's kind is what makes the reminder admissible under
+// format v4 and type-correct on every host line.
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'context-rollover': RolloverReminderSource
+  }
+}
 
 /**
  * Prefix of the pressure reminder's message summary.
  *
  * One constant serves both the sender and {@link isPressureReminder}, so the
  * two can never disagree about what a reminder looks like. The engine's own
- * plugin name is part of the test, and the package name is not: a predicate
+ * producer kind is part of the test, and the package name is not: a predicate
  * keyed on `dsh-context-rollover` matches nothing the engine writes.
  */
 export const REMINDER_SUMMARY_PREFIX = 'context pressure reminder'
@@ -411,9 +443,43 @@ export function reminderWindowKey(session: Session): string {
 }
 
 /**
+ * Build the message source for one pressure reminder.
+ *
+ * The engine and the format-admission regression test build from this one
+ * constructor, so the source that ships is the source that is verified.
+ * @param percent - measured pressure as a whole percentage of the window.
+ * @returns the producer-owned notice source.
+ */
+export function reminderSource(percent: number): RolloverReminderSource {
+  return Object.freeze({
+    kind: REMINDER_SOURCE_KIND,
+    form: 'notice',
+    summary: boundContextSummary(`${REMINDER_SUMMARY_PREFIX} (${percent}% used)`),
+  })
+}
+
+/** A persisted message source read without one host line's narrowing. */
+interface RecordedSource {
+  readonly kind: string
+  readonly plugin?: string
+  readonly form?: string
+  readonly summary?: string
+}
+
+/**
  * The one definition of "this event is a pressure reminder".
  *
- * The source carries the engine's own plugin name, which is not the package
+ * The predicate spans every shape this engine's own reminder can carry in a
+ * durable log, because the log is the once-per-window authority and outlives a
+ * plugin upgrade:
+ *
+ * - `context-rollover` — the producer-owned kind written now;
+ * - `plugin:context-rollover` — a pre-v4 reminder renamed by the V3→V4
+ *   session-format migration;
+ * - `{ kind: 'plugin', plugin: 'context-rollover' }` — the retired shared
+ *   wrapper, as persisted by hosts predating producer-owned kinds.
+ *
+ * The producer identity is the cordis plugin name, which is not the package
  * name: a predicate keyed on `dsh-context-rollover` never matches anything the
  * engine writes, and silently disables whatever depends on it. The summary
  * prefix is shared with the sender for the same reason. Every consumer — the
@@ -425,11 +491,13 @@ export function reminderWindowKey(session: Session): string {
  */
 export function isPressureReminder(event: SessionEvent): event is SessionEvent<'user/message'> {
   if (event.type !== 'user/message') return false
-  const { source } = event.data
-  return source.kind === 'plugin'
-    && 'plugin' in source
-    && source.plugin === PLUGIN_NAME
+  const source = event.data.source as RecordedSource
+  const identity = source.kind === REMINDER_SOURCE_KIND
+    || source.kind === `plugin:${PLUGIN_NAME}`
+    || (source.kind === 'plugin' && source.plugin === PLUGIN_NAME)
+  return identity
     && source.form === 'notice'
+    && typeof source.summary === 'string'
     && source.summary.startsWith(REMINDER_SUMMARY_PREFIX)
 }
 

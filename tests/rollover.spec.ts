@@ -57,7 +57,7 @@ describe('selectRolloverRange', () => {
     session.append('system/message', {
       turn: 1,
       step: 1,
-      message: createSystemMessage('persona', 'test'),
+      message: createSystemMessage('persona'),
     }, { surfaceOp: 'append' })
     appendExchange(session, 1, 'first')
     appendExchange(session, 2, 'second')
@@ -74,7 +74,11 @@ describe('selectRolloverRange', () => {
 describe('commitRollover', () => {
   it('replaces the span with one checkpoint and keeps raw events persisted', async () => {
     const meter = await bareMeter()
-    const session = closedConversation(4)
+    // The shrink guard refuses a checkpoint that is not genuinely smaller than
+    // the content it shadows; four one-line exchanges sit below that margin
+    // under the current line's pricing, so seed the volume a real window
+    // carries before a rollover.
+    const session = closedConversation(4, ` ${'context '.repeat(40)}`)
     const beforeCount = session.snapshotEvents().length
     const measurement = meter.measure(session)
     const range = selectRolloverRange(session, measurement, 0)

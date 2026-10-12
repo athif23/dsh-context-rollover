@@ -17,7 +17,7 @@ import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compac
 import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compaction'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
-import { CONTEXT_WINDOW_EXCEEDED_CODE, boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 // Type-only: makes the optional sibling service available to `ctx.get()`, and
@@ -35,13 +35,13 @@ import {
   claimReminder,
   commitRollover,
   countRollovers,
-  REMINDER_SUMMARY_PREFIX,
+  reminderSource,
   selectRolloverRange,
 } from './rollover.ts'
 import { createRolloverTools } from './tools.ts'
 import type { PendingRollover } from './state.ts'
 
-/** Cordis plugin name used by loader diagnostics and message-source attribution. */
+/** Cordis plugin name used by loader diagnostics. */
 export const name = 'context-rollover'
 
 /** Identity of one agent turn for per-turn engine bookkeeping. */
@@ -256,12 +256,7 @@ export class ContextRolloverEngine extends CompactionEngine {
           + `An automatic rollover starts around ${rolloverTokens} tokens. If a task boundary is near, `
           + 'save what matters to notes and call new_context with a short handoff; otherwise checkpoint soon.',
       }],
-      source: {
-        kind: 'plugin',
-        plugin: name,
-        form: 'notice',
-        summary: boundContextSummary(`${REMINDER_SUMMARY_PREFIX} (${percent}% used)`),
-      },
+      source: reminderSource(percent),
     })
   }
 

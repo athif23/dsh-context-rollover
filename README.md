@@ -103,10 +103,9 @@ preserve intent through notes and the recent verbatim tail instead.
 ## Host version compatibility
 
 The plugin typechecks against **both** host lines: the development checkout and
-its installed profiles (`0.1.6-alpha.1`, via generated tsconfig paths) and the
-newest packages published to public npm (`0.0.1-rc.1`, the
-`pnpm typecheck:compat` probe against `compat/node_modules`). Runtime
-differences are bridged in `src/compat.ts`:
+its installed profiles (via generated tsconfig paths) and the packages published
+to public npm (the `pnpm typecheck:compat` probe against `compat/node_modules`).
+Runtime differences are bridged in `src/compat.ts`:
 
 - the session log as `snapshotEvents()` (newer line) or `events` (published);
 - `eventAt(seq)` versus indexing that array;
@@ -114,6 +113,14 @@ differences are bridged in `src/compat.ts`:
 - the replacement operation as `{ startSeq, endSeq }` (newer line) or
   `{ start, end }`, probed once per process because each line rejects the
   other's field names.
+
+Session format v4 refuses the retired shared `{ kind: 'plugin', plugin }`
+message source at durable admission (`format v4 message requires a
+producer-owned source kind`), so the pressure reminder stamps its own producer
+kind (`context-rollover`). The delivery predicate still recognizes the legacy
+wrapper and the `plugin:context-rollover` kind a V3→V4 migration produces, so a
+session that already carries a reminder keeps its once-per-window guarantee
+across the upgrade.
 
 Note the published `@deepseek-ai/dsh-*` packages are a *partial* mirror: some
 of their peers reference packages that were never published publicly, so a
